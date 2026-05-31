@@ -176,6 +176,16 @@ extension imposes a shorter timeout, shorten `HTTP_POLL_TIMEOUT` on the bridge.
 
 ---
 
+## 5a. Bounding large results
+
+Tool results land in the model's context, and the transport bounds nothing — so
+keeping results token-bounded is the **adapter's** job. This is the single thing
+that bites every adapter the moment it meets a real dataset (weir's first
+`listFacets` dumped 476 KB). Patterns — ranked truncation for aggregates, two-tier
+list→detail, **keyset** (not offset) cursor pagination for exhaustible lists,
+filters over paging, always a hard cap + `total`/`hasMore`. Full guide with worked
+weir examples: **[docs/large-results.md](docs/large-results.md)**.
+
 ## 6. Tool naming
 
 With per-app bridges (§2) tool lists never merge across apps, so namespacing is

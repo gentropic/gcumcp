@@ -37,6 +37,11 @@ port and sees only that app's tools — no crosstalk between apps. See
 The **adapter** (the tools themselves) lives in each app's own repo — weir's
 `weir-tools.js`, Auditable's `mcp-adapter.js` — not here.
 
+Writing an adapter? See **[docs/large-results.md](docs/large-results.md)** for how
+to keep tool results token-bounded (ranked truncation, two-tier list→detail,
+keyset cursor pagination) — the one thing that bites every adapter the moment it
+hits a real dataset.
+
 ## Quick start (wiring an app, e.g. weir)
 
 1. **Vendor `shim.js`** into the app so it loads on the page, and set a stable id:

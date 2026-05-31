@@ -1,0 +1,21 @@
+# Working context for Claude Code / agents — never published.
+CLAUDE.md
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Local machine config the bridge may write (token lives in ~/.gcu, not here,
+# but guard against a stray local copy or per-repo override).
+.gcu-webmcp.local.json
+*.local.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs / scratch
+*.log
+COMMIT_MSG.tmp

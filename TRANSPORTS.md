@@ -362,6 +362,20 @@ low-bandwidth and latency-tolerant, so the folder's lag bites only once at setup
   upgraded). ICE host candidates cover same-machine/LAN with no server; the open
   internet needs a STUN server (free/public, a minor ethos asterisk) and worst-case
   symmetric-NAT needs TURN (a real relay — out of scope for v1.5).
+- **`allowRemote` toggle, default `false` (local/LAN only).** Reachability is an
+  ICE-candidate policy, so the toggle is principled, not a hack:
+  - *off (default):* `iceServers: []` (no STUN/TURN → only host candidates gather) **and**
+    a candidate filter dropping anything that isn't loopback / private
+    (`10/8`, `172.16/12`, `192.168/16`, `169.254/16`, `fe80::/10`, `fc00::/7`) or an
+    mDNS `.local` name, applied to both advertised and accepted candidates. Result:
+    connects same-machine + LAN; an internet peer has no path. Enforce + **audit** via
+    `getStats()` on the selected pair — tear down if it resolved to a public IP.
+  - *on (opt-in):* add STUN (+ TURN if needed) and stop filtering public candidates.
+  - This is a network-*exposure* control layered on the existing auth (folder
+    membership + per-frame HMAC is still the trust boundary — `allowRemote` only
+    governs whether a direct internet-facing P2P socket may form). And it degrades
+    gracefully: a refused remote channel **stays on the `fs` transport** (which already
+    works remotely, sync-paced), so the toggle controls *fast P2P*, not connectivity.
 - Relay-side WebRTC stack (`node-datachannel`/`werift`) is a bridge-only (dev-time)
   dependency, never in a shipped browser bundle — acceptable, but pin it.
 

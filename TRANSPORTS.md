@@ -376,6 +376,25 @@ low-bandwidth and latency-tolerant, so the folder's lag bites only once at setup
     governs whether a direct internet-facing P2P socket may form). And it degrades
     gracefully: a refused remote channel **stays on the `fs` transport** (which already
     works remotely, sync-paced), so the toggle controls *fast P2P*, not connectivity.
+
+### 7.1 Reach is a ladder; same-machine is enforced by the medium, not WebRTC
+
+The transport's reach equals **the folder's reach**, so "strictly this machine" is an
+operational choice, not a code filter — and a stronger guarantee for it:
+
+| reach | how | WebRTC |
+|---|---|---|
+| **same machine only** | **un-synced local folder** (bytes never leave the box) | off — and unneeded (local `fs` is already direct disk I/O) |
+| LAN / remote, slow | a synced folder | off → stays on `fs` |
+| LAN / remote, fast | a synced folder | on (`allowRemote`; +STUN for internet) |
+
+Don't try to make WebRTC loopback-only: browsers obfuscate local host candidates as
+`.local` mDNS names (loopback indistinguishable from LAN, and loopback candidates often
+aren't gathered at all), so a candidate filter can't reliably mean "this machine." It
+doesn't matter — same-machine gets no benefit from WebRTC anyway. If a *code-enforced*
+same-machine guarantee is wanted, the **`ws`/`http` socket transport** is the strongest
+(it binds `127.0.0.1`, OS-unroutable off-box); `fs` is what you reach for when the socket
+isn't usable (public origin, or crossing machines).
 - Relay-side WebRTC stack (`node-datachannel`/`werift`) is a bridge-only (dev-time)
   dependency, never in a shipped browser bundle — acceptable, but pin it.
 

@@ -7,10 +7,11 @@
   "repository": { "type": "git", "url": "https://github.com/gentropic/webmcp.git" },
   "type": "commonjs",
   "bin": { "webmcp-bridge": "webmcp-bridge.js" },
-  "files": ["webmcp-bridge.js", "shim.js", "SPEC.md", "README.md"],
+  "files": ["webmcp-bridge.js", "shim.js", "fs-channel.js", "SPEC.md", "TRANSPORTS.md", "README.md"],
   "scripts": {
     "info": "node webmcp-bridge.js --info",
-    "smoke": "node tools/smoke.mjs",
+    "smoke": "node tools/smoke.mjs && node tools/smoke-fs.mjs",
+    "smoke:fs": "node tools/smoke-fs.mjs",
     "e2e": "node tools/e2e-browser.mjs"
   },
   "keywords": ["mcp", "webmcp", "claude", "model-context-protocol", "gcu", "local-first"],

@@ -109,6 +109,12 @@ browser JS** with no imports/exports, so it inlines into any single-file build
 
 ## 4. Protocol (bridge ↔ surface)
 
+> **Transports are pluggable.** This section describes the `ws`/`http` localhost
+> transports. A third transport — **`fs`**, the same message set over a shared
+> (optionally sync'd) folder, removing the port and the PNA/extension dependency —
+> and the formal transport interface + a WebRTC seam are specified in
+> **[TRANSPORTS.md](TRANSPORTS.md)**.
+
 Localhost only. WebSocket first; HTTP long-poll fallback for `file://` origins.
 Both transports carry the same JSON messages. `PROTOCOL_VERSION = 1` is pinned on
 both sides — mismatches are rejected, so apps must vendor a shim matching the
@@ -173,6 +179,34 @@ extension imposes a shorter timeout, shorten `HTTP_POLL_TIMEOUT` on the bridge.
   page) and/or honour an access policy. Auditable does this with `%mcp` cell
   directives + accept/reject dialogs; every app's adapter needs an equivalent.
   "The official GCU way" implies a shared *consent posture*, not just a wire.
+
+### 5.1 Threat model
+
+What the token/transport defends and what it deliberately concedes — general to all
+transports; the `fs`-specific cluster-secret detail is in
+[TRANSPORTS.md §4.1–4.3](TRANSPORTS.md).
+
+- **Defended — hostile web origin.** A page you visit can reach `localhost` but
+  can't read your filesystem, so it can't learn the token → the bridge rejects it.
+  This is the token's actual job.
+- **Defended — at rest.** `~/.gcu/webmcp.json` is mode `600` (other OS users,
+  backups, a stolen/synced home dir). An OS keyring is *optional* hardening on this
+  line only, not a fix for anything else (TRANSPORTS §4.2).
+- **Conceded — local code running as you.** A same-user process can read the token
+  (file *or* keyring) and could already drive your browser / read your files anyway.
+  Local same-user malware is **out of scope by design** — the standard posture for
+  any localhost-class API (dev servers, LSP, the Chrome debug port). Process-identity
+  gates are theater within a UID; we don't engineer against this.
+- **authN ≠ authZ.** Authenticating a connection ("it's the peer we think") never
+  grants unlimited authority. Authority stays bounded by the adapter's consent policy
+  regardless of who connected — which is where defence actually lives.
+- **The real threat is the confused deputy.** Surfaces ingest *untrusted content*
+  (feed items, scraped pages, agent-authored Courier dispatches) and expose tools to
+  an agent; the danger is legitimate content steering the agent into an unintended
+  tool call, which transport auth can't see. Invariants: **transport trust ≠ content
+  trust**, and **irreversible/structural actions stay human-gated regardless of who
+  proposed them** (weir's Courier ratify-gate, generalized). This is *why* "mutations
+  must confirm" above is load-bearing, not a nicety.
 
 ---
 

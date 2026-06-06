@@ -1,0 +1,360 @@
+# @gcu/webmcp — Transports
+
+Status: **draft, v0.1.** Extends [SPEC.md §4](SPEC.md). Records the design for a
+*pluggable transport layer* and a new **filesystem transport** (`fs`) that carries
+the existing wire protocol over a shared folder instead of a localhost socket —
+plus the seam for a later WebRTC upgrade. When code and this doc disagree, this
+doc states intent; fix the code or amend the doc.
+
+Motivating problem: today a browser surface reaches the bridge over `ws://localhost`
+or HTTP long-poll. On a **public origin** (the deployed PWA) that path is gated by
+Private/Local Network Access and needs the `@gcu/bridge` *fetch extension* to
+punch through (SPEC §4.1). The `fs` transport sidesteps networking entirely: both
+peers only ever touch a directory. For a same-machine agent it removes **both** the
+extension *and* the localhost port — the bridge becomes a normal stdio MCP server
+whose backend is a folder. The same folder, sync'd (Syncthing/Dropbox/a share),
+reaches a surface on another machine with no port-forwarding.
+
+---
+
+## 1. The transport interface (the plug)
+
+The shim today implicitly "picks a transport" (WS, else HTTP). Formalize that into
+one duplex contract every transport implements; the shim and the bridge each own a
+matching pair. A transport is a **dumb pipe for the §4 message set** — it carries
+`hello`/`welcome`/`tools_changed`/`tool_invoke`/`tool_result`/`notification`/
+`ping`/`pong` verbatim and knows nothing about tools.
+
+```
+interface Transport {
+  connect(): Promise<void>          // establish/await the channel
+  send(msg): void                   // enqueue one wire message (a §4 object)
+  onMessage(cb): void               // deliver inbound wire messages
+  onStateChange(cb): void           // 'connecting'|'open'|'closed'
+  close(): void
+}
+```
+
+`PROTOCOL_VERSION = 1` (the message set) is unchanged — `fs` carries the same
+objects. What `fs` adds is an **envelope** around each message (auth + framing,
+§3.3); that envelope has its own `FS_TRANSPORT_VERSION`, independent of the
+protocol version. The selection rule extends SPEC §4.1: **explicit `fs` (a folder
+is configured) → `fs`; else WS first; else HTTP long-poll.**
+
+---
+
+## 2. Transport catalog
+
+| id | medium | identity | secret use | status |
+|---|---|---|---|---|
+| `ws` | `ws://localhost:<port>` | port | token in `hello` | shipped |
+| `http` | localhost long-poll | port | token in `hello` | shipped (file:// / PNA) |
+| `fs` | a shared directory | **folder** | **HMAC per frame** (§4) | **this doc, v1** |
+| `webrtc` | data channel, folder-signalled | folder→then P2P | DTLS + handshake HMAC | **v1.5 seam (§7)** |
+
+`ws`/`http` are unchanged. The rest of this doc is `fs`, with the `webrtc` seam.
+
+---
+
+## 3. The `fs` transport protocol
+
+### 3.1 Folder layout
+
+One exchange directory per surface (= the app-identity unit, §5). The bridge and
+the page are symmetric folder peers; neither is a server.
+
+```
+<exchange>/
+  bridge.live                       announce: {v, session, ts}.sig — the page watches for this
+  sessions/<session>/
+    to-page/                        bridge → page  (welcome, tool_invoke, ping)
+      <seq>.json   <seq>.ready      payload + signed sentinel (§3.3)
+      .alive                        bridge heartbeat ({ts}.sig)
+    to-bridge/                      page → bridge  (hello, tools_changed, tool_result, notification, pong)
+      <seq>.json   <seq>.ready
+      .alive                        page heartbeat
+```
+
+Two **outboxes** because the channel is duplex and not request/response — e.g.
+`tools_changed` is an unsolicited page→bridge push, `tool_invoke` is bridge→page.
+Each direction has its own monotonic `seq`. Message correlation (a tool call to
+its result) is the existing JSON-RPC `callId` inside the payload; `seq` is only for
+delivery ordering and replay defence.
+
+### 3.2 Session establishment (no port to dial)
+
+The **bridge announces; the page dials** — the folder analog of "bridge listens,
+page connects":
+
+1. Bridge starts → mints a fresh `session` nonce → writes `bridge.live`
+   (`{v, session, ts}` + sig). A fresh nonce each start means a restarted bridge
+   is a new session; stale `sessions/*` are ignored and GC'd.
+2. Page (holds the folder handle + secret) polls `bridge.live`, verifies the sig
+   and freshness, learns `session`, writes `hello` as `to-bridge/0.*`.
+3. Bridge sees the `hello`, verifies, creates `to-page/`, replies `welcome`.
+4. Steady state: each side appends to its outbox, polls the other's.
+
+Reconnect is free: a page restart re-reads `bridge.live` and re-`hello`s the live
+session; a bridge restart publishes a new session the page follows.
+
+### 3.3 Framing & atomicity — the signed sentinel
+
+A folder is an **at-rest medium synced across machines**, so two hazards that a
+socket doesn't have: a reader may observe a *partially-written/partially-synced*
+file, and sync engines do **not** guarantee atomic `temp→rename` propagation. The
+fix doubles as the auth carrier (§4), so framing and security are one mechanism:
+
+- Producer writes the payload `‹seq›.json`, then a tiny sentinel `‹seq›.ready`:
+  ```
+  { v, session, dir, seq, ts, len, hmac }
+  ```
+  `len` = payload byte length; `hmac` = `HMAC-SHA256(key, canonical(payload))`.
+- A consumer **keys off `‹seq›.ready`**, then requires `‹seq›.json` to exist with
+  `bytes == len` *and* a matching `hmac` before it will parse. So:
+  - **partial sync** → length/hmac mismatch → wait (it completes on the next tick);
+  - **reordered delivery** (sentinel arrives before payload — sync engines do this)
+    → handled, because the consumer waits for the payload to satisfy the sentinel;
+  - **tamper / injection / replay** → hmac or `seq`/`ts` check fails (§4).
+- After processing, the consumer deletes both files. A periodic sweep removes any
+  orphan older than `FS_ORPHAN_TTL` as a backstop. A clean `close` removes the
+  session dir.
+
+This means we need **no** reliance on rename atomicity and **no** separate
+integrity layer — a valid signed sentinel proves *complete AND authentic* in one
+check.
+
+### 3.4 Liveness & polling
+
+- `.alive` per outbox, rewritten every `FS_HEARTBEAT` (signed `{ts}`); a peer whose
+  heartbeat is older than `FS_LIVENESS` (a small multiple) is considered gone →
+  state `closed`.
+- **Adaptive cadence:** burst-poll for ~`FS_BURST` after sending (a reply is
+  imminent), decay to `FS_IDLE` when quiet. Same shape as weir's Courier runner.
+  Same-machine these are sub-second; over a sync hop the *engine's* latency
+  dominates and our cadence is moot — accept it (FS is the cross-machine *batch*
+  transport; WebRTC is the cross-machine *interactive* one, §7).
+
+### 3.5 Defaults (tunable, pin in code)
+
+`FS_TRANSPORT_VERSION=1` · `FS_HEARTBEAT≈2s` · `FS_LIVENESS≈10s` ·
+`FS_BURST≈250ms for ~3s` · `FS_IDLE≈1s` · `FS_ORPHAN_TTL≈60s`.
+
+---
+
+## 4. Security model
+
+**Trust boundary = the folder.** Whoever can write the exchange dir can drive the
+surface — the same posture as weir's Courier. A peer, once it completes the signed
+handshake, is **fully trusted for the session** (you initiated it); FS-RPC is not
+gated per-call the way Courier *dispatches* are. That is only safe because **every
+frame is authenticated**, which a folder requires precisely because it has no
+socket to anchor session identity to:
+
+- **Key.** Reuse the existing machine token (`~/.gcu/webmcp.json`, SPEC §5) — no
+  new secret to provision. Derive per-surface keys: `key = HKDF(token, "webmcp-fs|"
+  + folderId)`, so the same token yields distinct keys per exchange dir, and a
+  reserved second output slot can become an AES key if a fully-untrusted folder
+  ever needs payload encryption (deferred — WebRTC/DTLS covers the wire in v1.5,
+  and an own-cluster sync folder faces replay/injection, not eavesdropping).
+- **Per-frame auth.** HMAC over the canonical payload (in the sentinel, §3.3).
+- **Replay/freshness.** Reject a `seq` already seen for `(session, dir)`; reject
+  `ts` outside ±`FS_SKEW` (a few minutes). A restored/duplicated old frame fails
+  both.
+- **Capability scoping (from day one).** The bridge enforces an allow-list passed
+  at launch — `--allow 'query*,getItem,listFacets'` (globs), default `*`. This is
+  orthogonal to, and composes with, the adapter's in-page consent (SPEC §5):
+  transport-level scoping for *less-trusted peers* (e.g. a SaaS surface), adapter
+  consent for *mutations*. Two layers, different jobs.
+
+Signing the handshake **and** every frame is the whole reason "fully trust once
+connected" is sound here — over a socket you'd sign only the handshake; over a
+folder, each file must self-authenticate.
+
+### 4.1 Threat model & conceded boundaries
+
+State plainly what the secret defends and what it deliberately does not — the
+conceded line is not a gap, it's the standard posture for any localhost-class tool.
+
+- **Defended — hostile web origin.** A page you happen to visit can reach
+  `localhost` (and, with `fs`, can't reach the folder at all); without the
+  token/HMAC it can't speak the protocol. This is the original job of the `ws`/`http`
+  token (SPEC §5) and of the `fs` HMAC. The page can't read your filesystem, so it
+  can't learn the secret.
+- **Defended — at rest.** The secret on disk is mode `600` (optionally an OS
+  keyring, §4.2): protects against other OS users, stray backups, a synced/stolen
+  home directory.
+- **Conceded — local code running as you.** A process under your account can read
+  the secret (file *or* keyring — a same-session process generally unlocks either)
+  and can in any case already drive your browser, read your files, and keylog. So
+  **local same-user malware is out of scope by design** — "if the box is
+  compromised it's game over anyway." Per-process authentication (e.g. peer creds
+  over a Unix socket) wouldn't help: browsers can't speak that, and a same-user
+  attacker impersonates anyway.
+- **`fs`-specific — the secret becomes a *cluster* secret.** Unlike `ws`/`http`
+  (token never leaves one machine), an `fs` exchange needs the secret on **every**
+  machine in the sync cluster. Two hard rules: (1) the secret is provisioned
+  **out-of-band per machine and NEVER written into the exchange folder** — writing
+  it there syncs your key to every peer; (2) the secret's blast radius = the whole
+  cluster, so scope clusters tightly. Capability scoping (`--allow`) + adapter
+  mutation-consent (SPEC §5) bound what a cluster peer can do and matter **more**
+  here than at-rest encryption.
+
+### 4.2 OS keyring — optional at-rest hardening
+
+Opportunistic, with fallback: use the platform store (Windows DPAPI / macOS
+Keychain / Linux libsecret) when present, else `~/.gcu/webmcp.json` mode `600`. It
+improves **only** the at-rest line above (backups, disk theft, multi-user), and on
+macOS adds a per-app unlock prompt — the one place it marginally raises the
+local-process bar. It does **not** touch the primary (web-origin) or conceded
+(local-process) boundaries. Cost: platform branches / a keyring dependency against
+the bridge's zero-dep ethos (shelling out to `security`/`secret-tool`/DPAPI is the
+zero-dep route). **Verdict: defensible later, not a v1 blocker** — file + `600`
+already covers the threat the token is actually for. This whole threat model is
+general (not `fs`-only); it ideally backports into SPEC §5.
+
+### 4.3 Authentication ≠ authorization — the confused-deputy boundary
+
+The conceded local-process gap (§4.1) is about **authentication of a process**, and
+it's a universal property of local APIs — not worth engineering against (a UID has
+no sub-isolation; process-identity gates are theater a same-user attacker defeats,
+and browsers can't speak them anyway). The effort belongs one layer up, in
+**authorization**, which the transport's authentication does *not* grant:
+
+- **"Fully trusted once connected" (§4) means authenticated, not omnipotent.** It
+  asserts *the peer is who we think* — it never says *it may do anything*. A
+  fully-authenticated peer is still bounded by the `--allow` capability scope and by
+  adapter mutation-consent (SPEC §5). Keep authN and authZ separate and the apparent
+  tension with §4.1 dissolves: the conceded gap is in authN-of-process; defence lives
+  in authZ, and authZ survives regardless of who connected.
+- **The real frontier threat is the confused deputy, not rogue connection.** The
+  surfaces here ingest **untrusted content** — feed items, scraped pages, and most
+  pointedly **Courier dispatches authored by an external agent** — and expose tools
+  to an agent. The dangerous path is *legitimate, authenticated* content steering the
+  agent (the deputy) into a tool call the human never intended; transport auth can't
+  see it, because the call is correctly signed. **Transport trust ≠ content trust.**
+- **Invariant: irreversible/structural actions stay human-gated, regardless of who
+  or what proposed them.** This is weir's Courier ratify-gate (decides-vs-proposes)
+  generalized: a feed-add arriving as a *proposal* the human ratifies is the pattern,
+  not a special case. Apply it to any tool whose effect is hard to undo.
+- **Defaults: mutations default-gated even for a trusted peer; reads liberal.** The
+  two-tier posture SPEC §5 already mandates. Cataloging stays a constrained
+  *classification* call that takes no actions (GLASS §1.1), so untrusted content it
+  reads cannot, by construction, drive an action.
+
+So: we do **not** chase the local-process authN gap (universal seam); we **do** keep
+authority minimal and irreversible actions human-gated (the part that is ours, and
+where untrusted content + an agent + tools actually meet).
+
+---
+
+## 5. Identity & isolation — folder replaces port
+
+SPEC §2 makes **port = app identity** and gets app isolation for free (weir's
+session physically can't dial Auditable's port). `fs` keeps the property with a
+different key: **the exchange folder is the identity.** One folder per surface;
+distinct folders can't see each other's traffic. So the §2 topology generalizes:
+
+| mode | identity | isolation | secret |
+|---|---|---|---|
+| `ws`/`http` | per-app port | distinct ports | machine token |
+| `fs` | per-app folder | distinct folders | machine token (HMAC) |
+
+Cross-surface fan-in stays explicit opt-in (SPEC §2.3): register two exchanges in
+one session to drive both.
+
+---
+
+## 6. The bridge in `fs` mode
+
+The agent side is the **existing `webmcp-bridge.js`**, gaining an `fs` backend —
+not a new binary, and not per-app. Its MCP-facing side is unchanged stdio
+JSON-RPC; only its surface-facing side swaps the socket for the folder:
+
+```json
+{ "mcpServers": { "webmcp-weir": { "command": "node",
+  "args": ["webmcp-bridge.js", "--app", "weir",
+           "--transport", "fs", "--folder", "~/laney-sync/weir-rpc"] } } }
+```
+
+Because **the page advertises its own tools** (WebMCP), the bridge is fully
+surface-agnostic — it relays frames and merges the tool list the page sends. So:
+
+- **One bridge install, parameterized per surface by `--folder`.** This resolves
+  SPEC §10's "user-scope install" question: the *binary* installs once (global /
+  `npx @gcu/webmcp`); *identity* stays explicit in the `--folder` arg, so
+  registration can be per-repo `.mcp.json` (keeps app identity with the app, as
+  today) **or** user-scope — both work because identity no longer hinges on where
+  the process was launched. Recommended: global binary, per-app `.mcp.json` entry.
+- Same-app concurrent windows: harmless here — folder peers don't contend for a
+  port (the `EADDRINUSE` dance, SPEC §2.1, doesn't apply). Two bridges on one
+  folder is a real edge (double-consume); v1 assumes one bridge per exchange and a
+  second logs a warning.
+
+---
+
+## 7. WebRTC upgrade — v1.5 seam (spec now, build next)
+
+Folder transport is the cross-machine *batch* path; its steady-state latency is
+the sync engine's. For cross-machine *interactive* use, upgrade to a WebRTC data
+channel **signalled through the same folder** — the one part of WebRTC that is
+low-bandwidth and latency-tolerant, so the folder's lag bites only once at setup:
+
+- `sessions/<session>/signal/{offer,answer,ice-*}.json` (signed like any frame).
+- **Opportunistic:** after the `fs` session is live, either peer may offer; on a
+  successful channel, frames move to the data channel and the folder goes quiet
+  (heartbeats only). On channel failure, fall back to `fs` seamlessly.
+- DTLS encrypts the channel (so §4's deferred payload-encryption is moot once
+  upgraded). ICE host candidates cover same-machine/LAN with no server; the open
+  internet needs a STUN server (free/public, a minor ethos asterisk) and worst-case
+  symmetric-NAT needs TURN (a real relay — out of scope for v1.5).
+- Relay-side WebRTC stack (`node-datachannel`/`werift`) is a bridge-only (dev-time)
+  dependency, never in a shipped browser bundle — acceptable, but pin it.
+
+v1 ships **without** any of this; the folder layout reserves `signal/` so adding it
+is additive.
+
+---
+
+## 8. weir as the first consumer
+
+- Mount the exchange via weir's existing aux-handle path (`fsmount.js`), a **handle
+  of its own**, distinct from the Courier's (blast-radius isolation; they may live
+  as siblings under one synced parent but never share a channel).
+- Status in the flight-deck statusbar, like `courier-status`. Optional auto-connect
+  on boot (mirrors the Courier's silent reconnect).
+- A weir-side UI *brand* for "an agent is driving me live over a folder" (a hydro
+  word — **Flume**/**Penstock** are the front-runners) is a deferrable weir-skin
+  decision, made when weir's UI for it is built — **not** a webmcp-layer concern.
+  In webmcp the thing is just "the `fs` transport." Do **not** reuse "Courier" — it
+  fits weir's curated human-ratified exchange better than a dumb fast pipe, and
+  renaming a shipped subsystem to free the name is churn.
+
+---
+
+## 9. Scope & sequencing
+
+- **v1 — `fs` transport.** The interface (§1), the folder protocol (§3), the
+  security model (§4), the bridge `fs` backend (§6). Browser(FSA) ↔ agent(stdio
+  bridge), same-machine **and** sync'd, single peer. **Proven by:** Claude Code
+  calling `weir_queryItems` over a temp folder with **no extension and no port**,
+  as a zero-dep node smoke (alongside the existing `tools/smoke.mjs`).
+- **v1.5 — WebRTC upgrade** (§7), folder-signalled, opportunistic, STUN-only.
+- **v2 — hardening:** payload encryption option, multi-peer per folder, TURN, a
+  shared consent helper (SPEC §10).
+
+---
+
+## 10. Open questions
+
+- **Secret-provisioning UX.** Reusing the machine token means *no* new paste in the
+  common case — but the page still needs the token to compute HMACs. Today it's
+  pasted once (`port:token`) and stored origin-scoped. For `fs` the connect datum
+  is `folder-handle + token`; the token paste can stay identical, or weir can show
+  the token in-UI for the connector. Settle the exact first-connect flow.
+- **Polling vs a watch hint.** Browsers have no FSA change events; we poll. Is an
+  optional out-of-band nudge (a same-origin BroadcastChannel when weir itself
+  wrote) worth it, or is adaptive polling enough? (Lean: enough.)
+- **Sync-conflict files.** Engines may emit `file.sync-conflict-…` copies. The
+  sentinel/seq scheme ignores them (wrong name), but the sweep should reap them.
+- **v1.5 timing.** Flagged "soon" by the maintainer — sequence right after v1
+  rather than vague-future.

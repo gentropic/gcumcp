@@ -65,37 +65,46 @@ the page are symmetric folder peers; neither is a server.
 
 ```
 <exchange>/
-  bridge.live                       announce: {v, session, ts}.sig — the page watches for this
-  sessions/<session>/
-    to-page/                        bridge → page  (welcome, tool_invoke, ping)
-      <seq>.json   <seq>.ready      payload + signed sentinel (§3.3)
-      .alive                        bridge heartbeat ({ts}.sig)
-    to-bridge/                      page → bridge  (hello, tools_changed, tool_result, notification, pong)
+  bridge.live                              announce: {payload:"{v,session,ts}", sig} — page watches it
+  sessions/<session>/<epoch>/
+    to-page/                               bridge → page  (welcome, tool_invoke, ping)
+      <seq>.json   <seq>.ready             payload + signed sentinel (§3.3)
+    to-bridge/                             page → bridge  (hello, tools_changed, tool_result, notification, pong)
       <seq>.json   <seq>.ready
-      .alive                        page heartbeat
 ```
 
-Two **outboxes** because the channel is duplex and not request/response — e.g.
-`tools_changed` is an unsolicited page→bridge push, `tool_invoke` is bridge→page.
-Each direction has its own monotonic `seq`. Message correlation (a tool call to
-its result) is the existing JSON-RPC `callId` inside the payload; `seq` is only for
-delivery ordering and replay defence.
+`<session>` is minted by the **bridge** per start (a restart = a new session).
+`<epoch>` is minted by the **page** per connect — so a browser reload reconnects
+on a *fresh* epoch instead of colliding seq counters with the still-live session
+(see §3.2). Two **outboxes** because the channel is duplex and not request/response
+— e.g. `tools_changed` is an unsolicited page→bridge push, `tool_invoke` is
+bridge→page. Each direction has its own monotonic `seq`, scoped to `(session,
+epoch)`. Message correlation (a tool call to its result) is the existing JSON-RPC
+`callId` inside the payload; `seq` is only for delivery ordering and replay defence.
 
-### 3.2 Session establishment (no port to dial)
+### 3.2 Session & epoch establishment (no port to dial)
 
 The **bridge announces; the page dials** — the folder analog of "bridge listens,
 page connects":
 
-1. Bridge starts → mints a fresh `session` nonce → writes `bridge.live`
-   (`{v, session, ts}` + sig). A fresh nonce each start means a restarted bridge
-   is a new session; stale `sessions/*` are ignored and GC'd.
+1. Bridge starts → mints a fresh `session` nonce → writes `bridge.live`. A fresh
+   nonce each start means a restarted bridge is a new session.
 2. Page (holds the folder handle + secret) polls `bridge.live`, verifies the sig
-   and freshness, learns `session`, writes `hello` as `to-bridge/0.*`.
-3. Bridge sees the `hello`, verifies, creates `to-page/`, replies `welcome`.
+   and freshness, learns `session`, **mints its own `epoch` nonce**, and writes
+   `hello` as `sessions/<session>/<epoch>/to-bridge/0.*`.
+3. Bridge scans the session's epoch dirs, **adopts the one with the freshest
+   `hello`**, replies `welcome`, and **sweeps the other epoch dirs** (reaping prior
+   reloads — cleanup falls out of adoption). Adopting an epoch resets the bridge's
+   per-connection `seq`/cursor for it.
 4. Steady state: each side appends to its outbox, polls the other's.
 
-Reconnect is free: a page restart re-reads `bridge.live` and re-`hello`s the live
-session; a bridge restart publishes a new session the page follows.
+**Reconnect is clean, not "free".** A naive flat session would wedge on a page
+reload — the reloaded page restarts its in-memory `seq` at 0, which the live bridge
+(cursor already past 0) would reject as a replay, and the page would see a gap in
+the other direction. The per-connection epoch is precisely what fixes this: a
+reload is a new epoch ⇒ fresh cursors both ways ⇒ a fresh handshake; the old epoch
+is swept. A bridge restart (new session) likewise makes the page mint a new epoch
+under it.
 
 ### 3.3 Framing & atomicity — the signed sentinel
 
@@ -106,38 +115,55 @@ fix doubles as the auth carrier (§4), so framing and security are one mechanism
 
 - Producer writes the payload `‹seq›.json`, then a tiny sentinel `‹seq›.ready`:
   ```
-  { v, session, dir, seq, ts, len, hmac }
+  { v, session, epoch, dir, seq, ts, len, sig }
   ```
-  `len` = payload byte length; `hmac` = `HMAC-SHA256(key, canonical(payload))`.
+  `len` = payload byte length; `sig` = `HMAC-SHA256(key, canon(session, epoch, dir,
+  seq, ts, len, payload))` — the HMAC covers the **raw stored payload string**, not
+  a re-serialization, so it's stable across engines (node writes, browser reads).
 - A consumer **keys off `‹seq›.ready`**, then requires `‹seq›.json` to exist with
-  `bytes == len` *and* a matching `hmac` before it will parse. So:
-  - **partial sync** → length/hmac mismatch → wait (it completes on the next tick);
+  `bytes == len` *and* a matching `sig` before it will parse. So:
+  - **partial sync** → length/sig mismatch → wait (it completes on the next tick);
   - **reordered delivery** (sentinel arrives before payload — sync engines do this)
     → handled, because the consumer waits for the payload to satisfy the sentinel;
-  - **tamper / injection / replay** → hmac or `seq`/`ts` check fails (§4).
-- After processing, the consumer deletes both files. A periodic sweep removes any
-  orphan older than `FS_ORPHAN_TTL` as a backstop. A clean `close` removes the
-  session dir.
+  - **tamper / injection / replay** → sig or `seq`/`ts` check fails (§4).
+  - Check order is `seq` → fields → **freshness (`ts`)** → `len` → `sig`; a frame
+    failing freshness or sig is removed so it can't wedge the cursor.
+- After processing, the consumer deletes both files. `bridge.live` signs/verifies
+  the same way over its raw stored payload string. Stale epoch dirs are swept on
+  adoption (§3.2); a clean `close` removes the epoch dir.
 
 This means we need **no** reliance on rename atomicity and **no** separate
 integrity layer — a valid signed sentinel proves *complete AND authentic* in one
 check.
 
-### 3.4 Liveness & polling
+### 3.4 Liveness & polling — passive, because writes are expensive
 
-- `.alive` per outbox, rewritten every `FS_HEARTBEAT` (signed `{ts}`); a peer whose
-  heartbeat is older than `FS_LIVENESS` (a small multiple) is considered gone →
-  state `closed`.
-- **Adaptive cadence:** burst-poll for ~`FS_BURST` after sending (a reply is
-  imminent), decay to `FS_IDLE` when quiet. Same shape as weir's Courier runner.
-  Same-machine these are sub-second; over a sync hop the *engine's* latency
-  dominates and our cadence is moot — accept it (FS is the cross-machine *batch*
-  transport; WebRTC is the cross-machine *interactive* one, §7).
+The asymmetry that shapes this: over a sync engine, **reads are cheap** (polling a
+local `readdir` transfers nothing on the wire) but **writes are expensive** (each
+is a detect→hash→transfer→remote-write round-trip) and, worse, write churn *delays
+the real frames*. So a per-tick heartbeat is an anti-pattern here. Liveness is
+**passive**:
+
+- **A frame's signed `ts` is its own liveness proof.** During active RPC, liveness
+  is free; no extra writes.
+- **When idle, nobody writes anything.** "Is the peer alive?" only needs answering
+  when there's work — and then the frame (or a tool-call timeout) answers it.
+- **The one periodic write in the whole system** is the bridge refreshing
+  `bridge.live` slowly (`ANNOUNCE_INTERVAL`), so an idle page can tell a live bridge
+  from a stale one. The **page is write-silent when idle** — a browser tab must not
+  thrash a synced folder doing nothing.
+- **Page detects a dead bridge** when `bridge.live` is older than `LIVENESS`
+  (→ state `connecting`, retry on the cheap read). **Bridge reaps a gone page**
+  lazily (a failed/ timed-out call, or epoch sweep), not via heartbeat.
+- **Polling (reads) stays frequent** for latency; over a sync hop the *engine's*
+  latency dominates anyway (FS is the cross-machine *batch* transport; WebRTC is the
+  *interactive* one, §7). The host must not overlap ticks (await one before the next).
 
 ### 3.5 Defaults (tunable, pin in code)
 
-`FS_TRANSPORT_VERSION=1` · `FS_HEARTBEAT≈2s` · `FS_LIVENESS≈10s` ·
-`FS_BURST≈250ms for ~3s` · `FS_IDLE≈1s` · `FS_ORPHAN_TTL≈60s`.
+`FS_VERSION=1` · `SKEW≈5min` (frame freshness/replay window) ·
+`ANNOUNCE_INTERVAL≈30s` (the only periodic write) · `LIVENESS≈90s` (page→
+dead-bridge). Poll cadence is the host's to set (sub-second same-machine).
 
 ---
 
@@ -157,9 +183,15 @@ socket to anchor session identity to:
   ever needs payload encryption (deferred — WebRTC/DTLS covers the wire in v1.5,
   and an own-cluster sync folder faces replay/injection, not eavesdropping).
 - **Per-frame auth.** HMAC over the canonical payload (in the sentinel, §3.3).
-- **Replay/freshness.** Reject a `seq` already seen for `(session, dir)`; reject
-  `ts` outside ±`FS_SKEW` (a few minutes). A restored/duplicated old frame fails
-  both.
+- **Replay/freshness.** Reject a `seq` already delivered for `(session, epoch,
+  dir)`; reject `ts` outside ±`SKEW`. A restored/duplicated old frame fails both.
+  (Cross-machine clock skew past `SKEW` fails the channel mute-ly, so a freshness
+  reject must **log loudly** — instrument the silent-degrade path.)
+- **DoS-by-overwrite is accepted.** Anyone with folder-write can clobber or inject
+  a frame filename; that is inherent to "folder = trust boundary" and out of scope
+  — the same concession as the cluster secret (§4.1). Integrity/auth still hold (a
+  clobbered frame fails its sig); only availability is at the mercy of a hostile
+  cluster member, which you already trust enough to share the secret with.
 - **Capability scoping (from day one).** The bridge enforces an allow-list passed
   at launch — `--allow 'query*,getItem,listFacets'` (globs), default `*`. This is
   orthogonal to, and composes with, the adapter's in-page consent (SPEC §5):

@@ -158,6 +158,16 @@ the real frames*. So a per-tick heartbeat is an anti-pattern here. Liveness is
 - **Polling (reads) stays frequent** for latency; over a sync hop the *engine's*
   latency dominates anyway (FS is the cross-machine *batch* transport; WebRTC is the
   *interactive* one, §7). The host must not overlap ticks (await one before the next).
+- **Background-tab throttling (poll-transport-specific).** The page poll is a
+  main-thread `setInterval`, so a *hidden* tab is throttled (~1s, → ~1/min deep-hidden
+  under Chrome intensive throttling) and a *discarded* tab pauses entirely. Nothing is
+  lost — frames wait in the folder and drain the instant the tab is refocused — but a
+  backgrounded poll-driven surface is laggy. The bridge (node) is never throttled. To
+  keep a *hidden* surface responsive, two routes: (a) move the poll loop into a **Web
+  Worker** (worker timers largely escape the throttle; keeps the no-extension property;
+  the FSA handle transfers to the worker, tool execution stays on the main thread via
+  postMessage) — a deferred enhancement; or (b) use a **push transport** (§7), which has
+  no timer to throttle. This is the one place the poll model is weaker than push.
 
 ### 3.5 Defaults (tunable, pin in code)
 
@@ -408,6 +418,12 @@ same-machine guarantee is wanted, the **`ws`/`http` socket transport** is the st
 isn't usable (public origin, or crossing machines).
 - Relay-side WebRTC stack (`node-datachannel`/`werift`) is a bridge-only (dev-time)
   dependency, never in a shipped browser bundle — acceptable, but pin it.
+- **Background-resilient for free.** A data channel is **push** (`onmessage` fires on a
+  network event), not a poll timer — so it stays responsive in a *hidden* tab, unlike
+  the fs poll (§3.4), with no Web Worker needed. `RTCPeerConnection` is effectively
+  main-thread-only (not reliably exposed in Workers), but that's moot here since there's
+  no poll loop to offload. So WebRTC buys low-latency **and** hidden-tab responsiveness
+  in one move — the upgrade for surfaces that must work while backgrounded.
 
 v1 ships **without** any of this; the folder layout reserves `signal/` so adding it
 is additive.

@@ -29,7 +29,14 @@ const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gcu-webmcp-fs-'));
 const exchange = fs.mkdtempSync(path.join(os.tmpdir(), 'gcu-fs-exch-'));
 const env = { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome };
 
-const proc = spawn('node', [bridgePath, '--app', 'test', '--transport', 'fs', '--folder', exchange], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+// Launch runtime is configurable so the same e2e exercises node, bun, deno, or a
+// COMPILED BINARY. WEBMCP_BRIDGE_RUN is a command template (default `node {script}`);
+// `{script}` is replaced with the bridge path, or omitted entirely for a self-contained
+// binary (e.g. WEBMCP_BRIDGE_RUN=/path/to/webmcp-bridge.exe).
+const runTmpl = (process.env.WEBMCP_BRIDGE_RUN || 'node {script}').split(' ').filter(Boolean);
+const runParts = runTmpl.map((p) => (p === '{script}' ? bridgePath : p));
+const bridgeArgs = ['--app', 'test', '--transport', 'fs', '--folder', exchange];
+const proc = spawn(runParts[0], [...runParts.slice(1), ...bridgeArgs], { env, stdio: ['pipe', 'pipe', 'pipe'] });
 
 // ── MCP stdio plumbing (mirrors smoke.mjs) ──
 let outBuf = '';

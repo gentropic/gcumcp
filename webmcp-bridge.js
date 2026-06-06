@@ -750,10 +750,39 @@ function printInfo() {
   }, null, 2) + '\n');
 }
 
-if (process.argv.includes('--info') || process.argv.includes('--setup')) {
-  printInfo();
-  process.exit(0);
+// --setup: friendly, copy-paste onboarding for Claude Code AND Claude Desktop, using
+// the no-clone `npx github:` distributable (→ swap to `@gcu/webmcp` once on npm / a
+// `jsr:` spec for deno). --info stays terse (app/token/port-or-folder).
+function printSetup() {
+  const { file } = configPath();
+  const app = APP_NAME || 'APP';
+  const fsMode = TRANSPORT === 'fs';
+  const PKG = 'github:gentropic/webmcp';   // today's no-publish distributable
+  const args = fsMode ? ['--app', app, '--transport', 'fs'] : ['--app', app, '--port', String(PREFERRED_PORT || 7801)];
+  const w = (s) => process.stdout.write(s);
+  w(`@gcu/webmcp — connect "${app}" to Claude Code / Claude Desktop\n\n`);
+  w(`  transport: ${fsMode ? 'fs — a shared folder, no port, no browser extension' : 'socket — ws/http on localhost'}\n`);
+  w(fsMode ? `  folder:    ${FOLDER}  (auto-created on start)\n` : `  port:      ${PREFERRED_PORT || 7801}\n`);
+  w(`  token:     ${sessionToken}\n             (machine-global, from ${file} — the page needs this)\n\n`);
+  w(`── Claude Code ──\n`);
+  w(`  claude mcp add ${app} --scope user -- npx -y ${PKG} ${args.join(' ')}\n\n`);
+  w(`── Claude Desktop ── add to claude_desktop_config.json\n`);
+  w(`  (Windows: %APPDATA%\\Claude\\  ·  macOS: ~/Library/Application Support/Claude/)\n`);
+  w(JSON.stringify({ mcpServers: { [app]: { command: 'npx', args: ['-y', PKG, ...args] } } }, null, 2) + '\n\n');
+  w(`── then, in the page ──\n`);
+  if (fsMode) {
+    w(`  open ${app}'s WebMCP/Claude settings → pick the folder ${FOLDER},\n`);
+    w(`  paste the token above, and "connect over folder". The page remembers it.\n`);
+    w(`  Sync that folder (e.g. Syncthing) to drive ${app} from another machine.\n`);
+  } else {
+    w(`  paste  ${PREFERRED_PORT || 7801}:${sessionToken}  into ${app}'s WebMCP connection field\n`);
+    w(`  (a public-origin PWA also needs the @gcu/bridge extension; --transport fs avoids that).\n`);
+  }
+  w(`\nRuntimes: node — or "bun ..." / "deno run -A ..." run the bridge unmodified.\n`);
 }
+
+if (process.argv.includes('--setup')) { printSetup(); process.exit(0); }
+if (process.argv.includes('--info')) { printInfo(); process.exit(0); }
 
 // ── Startup ──
 

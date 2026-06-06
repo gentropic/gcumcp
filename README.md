@@ -1,8 +1,8 @@
 # @gcu/webmcp
 
 The official, zero-dependency way to connect **GCU browser surfaces** (weir,
-Auditable notebooks, anything that loads the shim) to **Claude Code** — or any
-MCP stdio client — over localhost.
+Auditable notebooks, anything that loads the shim) to **Claude Code**, **Claude
+Desktop**, or any MCP stdio client.
 
 ```
 ┌──────────────────┐
@@ -14,10 +14,12 @@ MCP stdio client — over localhost.
 └──────────────────┘
 ```
 
-**One bridge per app, on a stable per-app port, with a machine-global token.** A
-Claude session started in an app's repo launches that app's bridge on that app's
-port and sees only that app's tools — no crosstalk between apps. See
-[SPEC.md](SPEC.md) for the full design; this is the quick start.
+**Two transports:** the localhost **socket** (ws/http, shown above), and **`fs`** —
+the *same* protocol carried over a shared folder, with **no port and no browser
+extension** (the right pick for a public-origin PWA, and it reaches another machine
+if you sync the folder). One bridge per surface; a Claude session sees only that
+surface's tools — no crosstalk. Full design in [SPEC.md](SPEC.md); the fs transport +
+its security model in [TRANSPORTS.md](TRANSPORTS.md). This is the quick start.
 
 > Not a replacement for third-party MCPs (Gmail, Drive, …) — those install
 > normally. This fronts *our* surfaces. The win is one bridge instead of one
@@ -30,9 +32,10 @@ port and sees only that app's tools — no crosstalk between apps. See
 
 | File | Role |
 |---|---|
-| `webmcp-bridge.js` | Node bridge: MCP stdio ⇄ WebSocket/HTTP relay, tool merge, routing. Zero deps. |
+| `webmcp-bridge.js` | Node bridge: MCP stdio ⇄ WebSocket/HTTP/**fs** relay, tool merge, routing. Zero deps. Runs unmodified on node, `bun`, or `deno run`. |
 | `shim.js` | Generic WebMCP polyfill — `navigator.modelContext` + transport client. Vendor into each app's build. |
-| `SPEC.md` | Design + topology decisions + assigned-ports table. |
+| `fs-channel.js` | The `fs`-transport protocol core (signed-sentinel framing). Vendor **alongside** `shim.js` for fs support. |
+| `SPEC.md` · `TRANSPORTS.md` | Design + topology + assigned ports; the pluggable transports + fs protocol + security model. |
 
 The **adapter** (the tools themselves) lives in each app's own repo — weir's
 `weir-tools.js`, Auditable's `mcp-adapter.js` — not here.
@@ -42,9 +45,40 @@ to keep tool results token-bounded (ranked truncation, two-tier list→detail,
 keyset cursor pagination) — the one thing that bites every adapter the moment it
 hits a real dataset.
 
+## Connect a surface to Claude (no clone needed)
+
+You have an instrumented GCU surface (e.g. the weir PWA) and want Claude to drive
+it. Use the **`fs` transport** — no port, no extension — run straight from GitHub:
+
+**Claude Code:**
+```
+claude mcp add weir --scope user -- npx -y github:gentropic/webmcp --app weir --transport fs
+```
+**Claude Desktop:** add to `claude_desktop_config.json` (`%APPDATA%\Claude\` on
+Windows, `~/Library/Application Support/Claude/` on macOS):
+```json
+{ "mcpServers": { "weir": { "command": "npx",
+  "args": ["-y", "github:gentropic/webmcp", "--app", "weir", "--transport", "fs"] } } }
+```
+Then get the token + the exact connect steps:
+```
+npx -y github:gentropic/webmcp --app weir --transport fs --setup
+```
+It prints both client snippets, the machine token, the auto-created folder
+(`~/webmcp/weir`), and the in-page step: open the surface's WebMCP settings → **pick
+that folder** → **paste the token** → **connect over folder**. The page remembers it.
+
+- **No npm key / publish needed** — `npx github:` runs the bin straight from the repo.
+- **No node?** `bun` and `deno run -A` run the same bridge unmodified (point `command`
+  at `bun`/`deno` instead of `npx`).
+- Once on npm, the same line becomes `npx -y @gcu/webmcp …`; once on JSR,
+  `deno run -A jsr:@gcu/webmcp …`.
+
 ## Quick start (wiring an app, e.g. weir)
 
-1. **Vendor `shim.js`** into the app so it loads on the page, and set a stable id:
+1. **Vendor `shim.js`** — and **`fs-channel.js`** if you want the fs transport —
+   into the app so they load on the page (`fs-channel.js` before the shim), and set a
+   stable id:
    ```js
    gcuWebMCP.name = 'weir';
    ```
@@ -58,24 +92,18 @@ hits a real dataset.
      execute: async ({ q }) => store.search(q),   // mutations should confirm first
    });
    ```
-3. **Add `.mcp.json`** to the app's repo (point `args` at wherever the bridge lives):
+   The page selects the fs transport when a folder handle is injected
+   (`gcuWebMCP.folder = <FileSystemDirectoryHandle>`, then `gcuWebMCP.connect("<token>")`);
+   otherwise it uses the socket. See [TRANSPORTS.md §6.1](TRANSPORTS.md).
+3. **Wire the bridge.** For end users: the [Connect](#connect-a-surface-to-claude-no-clone-needed)
+   section above (`npx github:` + `--transport fs`). For local dev against a clone:
    ```json
-   {
-     "mcpServers": {
-       "webmcp-weir": {
-         "command": "node",
-         "args": ["webmcp-bridge.js", "--app", "weir", "--port", "7801"]
-       }
-     }
-   }
+   { "mcpServers": { "webmcp-weir": { "command": "node",
+     "args": ["webmcp-bridge.js", "--app", "weir", "--transport", "fs"] } } }
    ```
-4. **Connect once.** Print the connection string:
-   ```
-   node webmcp-bridge.js --app weir --port 7801 --info
-   ```
-   Paste the `port:token` into the page's MCP panel, or append `#mcp=port:token`
-   to its URL. The page stores it (OPFS/localStorage) and reconnects silently
-   after that.
+   Run `node webmcp-bridge.js --app weir --transport fs --setup` for the token + the
+   exact in-page connect steps. (Drop `--transport fs` for the localhost socket + the
+   `@gcu/bridge` extension instead.)
 
 In Claude Code: call `listClients` to see what's connected, then call the tools
 the surface advertises.
@@ -89,18 +117,22 @@ the surface advertises.
   (mode `600`). It gates who may attach to your localhost bridge. Never commit it.
   Pages persist their own `port:token` in origin-scoped storage.
 
-## Transport
+## Transports
 
-WebSocket first; automatic HTTP long-poll fallback on `file://` origins (where
-browsers block WS). Force one with a suffix: `port:token:http` or `port:token:ws`.
+**socket** — WebSocket first, automatic HTTP long-poll fallback on `file://` (where
+browsers block WS); force with `port:token:http` / `port:token:ws`. A **public https
+origin** (gentropic.org/weir, installed PWA) can't reach `ws://localhost` — Chromium's
+Private/Local Network Access gates public→loopback. Inject the `@gcu/bridge` extension's
+brokered fetch (`gcuWebMCP.fetch = gcuFetch`) and the shim routes HTTP through the
+extension, sidestepping the gate (the path weir uses for Lemonade). See [SPEC §4.1](SPEC.md).
 
-**Public https origins** (gentropic.org/weir, installed PWA) can't reach
-`ws://localhost` — Chromium's Private/Local Network Access gates public→loopback.
-Inject the `@gcu/bridge` extension's brokered fetch — `gcuWebMCP.fetch = gcuFetch`
-— and the shim forces the HTTP transport through the extension, sidestepping the
-gate (the same path weir uses for Lemonade). The bridge also sends
-`Access-Control-Allow-Private-Network: true` so a *secure* origin can reach
-loopback directly with the browser's one-time permission. See [SPEC §4.1](SPEC.md).
+**`fs`** — the same wire protocol over a **shared folder**: the bridge and page exchange
+signed frames in `~/webmcp/<app>` (auto-created). **No port, no PNA, no extension** — so
+it's the clean path for a public-origin PWA, and it reaches another machine if you sync
+the folder. Inject `gcuWebMCP.folder = <handle>` and connect with the bare machine token.
+Polling-based, so it's snappy in a foreground tab and throttled (but lossless) when the
+tab is hidden. Full protocol + security model (signed sentinels, per-frame HMAC, the
+threat model) in **[TRANSPORTS.md](TRANSPORTS.md)**.
 
 ## Security model in one line
 

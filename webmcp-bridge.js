@@ -765,7 +765,8 @@ function printSetup() {
   w(fsMode ? `  folder:    ${FOLDER}  (auto-created on start)\n` : `  port:      ${PREFERRED_PORT || 7801}\n`);
   w(`  token:     ${sessionToken}\n             (machine-global, from ${file} — the page needs this)\n\n`);
   w(`── Claude Code ──\n`);
-  w(`  claude mcp add ${app} --scope user -- npx -y ${PKG} ${args.join(' ')}\n\n`);
+  w(`  claude mcp add ${app} --scope user -- npx -y ${PKG} ${args.join(' ')}\n`);
+  w(`  (Deno: claude mcp add ${app} --scope user -- deno run -A jsr:@gcu/webmcp ${args.join(' ')})\n\n`);
   w(`── Claude Desktop ── add to claude_desktop_config.json\n`);
   w(`  (Windows: %APPDATA%\\Claude\\  ·  macOS: ~/Library/Application Support/Claude/)\n`);
   w(JSON.stringify({ mcpServers: { [app]: { command: 'npx', args: ['-y', PKG, ...args] } } }, null, 2) + '\n\n');
@@ -778,7 +779,7 @@ function printSetup() {
     w(`  paste  ${PREFERRED_PORT || 7801}:${sessionToken}  into ${app}'s WebMCP connection field\n`);
     w(`  (a public-origin PWA also needs the @gcu/bridge extension; --transport fs avoids that).\n`);
   }
-  w(`\nRuntimes: node — or "bun ..." / "deno run -A ..." run the bridge unmodified.\n`);
+  w(`\nDistribution: npx github (node, no key) · jsr:@gcu/webmcp (deno, versioned) · or a clone.\n`);
 }
 
 if (process.argv.includes('--setup')) { printSetup(); process.exit(0); }

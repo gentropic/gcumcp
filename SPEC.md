@@ -301,8 +301,8 @@ tools in `mcp-adapter.js`. To migrate:
   is launched per-surface via `npx -y github:gentropic/webmcp --app <x> --transport fs`
   (`claude mcp add … --scope user` for Claude Code; the same in Claude Desktop's
   config) — no clone, no per-app port, no npm key. `--setup` emits both clients' config.
-  See the README + TRANSPORTS §6. (Future: `npx @gcu/webmcp` once on npm, `deno run
-  jsr:@gcu/webmcp` once on JSR.)
+  See the README + TRANSPORTS §6. Also **published on JSR**: `deno run -A
+  jsr:@gcu/webmcp …` (versioned, key-free). (Future: `npx @gcu/webmcp` once on npm.)
 - **Zero-paste first connect** *(still open, fs flavour).* For `fs`, a local (un-synced)
   folder's access already *is* the credential, so the bridge could drop a bootstrap hint
   the page reads — but that leaks the cluster secret on a *synced* folder, so it'd be

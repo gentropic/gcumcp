@@ -69,10 +69,10 @@ It prints both client snippets, the machine token, the auto-created folder
 that folder** → **paste the token** → **connect over folder**. The page remembers it.
 
 - **No npm key / publish needed** — `npx github:` runs the bin straight from the repo.
-- **No node?** `bun` and `deno run -A` run the same bridge unmodified (point `command`
-  at `bun`/`deno` instead of `npx`).
-- Once on npm, the same line becomes `npx -y @gcu/webmcp …`; once on JSR,
-  `deno run -A jsr:@gcu/webmcp …`.
+- **Prefer Deno?** It's published on **[JSR](https://jsr.io/@gcu/webmcp)** — point
+  `command` at `deno` and `args` at `run -A jsr:@gcu/webmcp …` (versioned, no git
+  fetch). `bun` runs the bridge unmodified too.
+- Once on npm, the node line also becomes `npx -y @gcu/webmcp …`.
 
 ## Quick start (wiring an app, e.g. weir)
 

@@ -15,10 +15,7 @@ import { mkdtemp, readFile, writeFile, rename, readdir, rm, mkdir } from 'node:f
 import { createHmac, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
-const { FsChannel, FS_VERSION } = require('../fs-channel.js');
+import { FsChannel, FS_VERSION } from '../fs-channel.js';
 
 let failed = 0;
 function ok(cond, msg) { if (cond) { console.log('  ✓ ' + msg); } else { failed++; console.log('  ✗ ' + msg); } }

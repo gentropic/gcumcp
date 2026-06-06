@@ -13,12 +13,12 @@
 // and every bridge on the machine shares it. The port is NOT a secret; the token
 // is. (Ports are app identity; the token gates who may attach to localhost.)
 
-const http = require('http');
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-const { FsChannel } = require('./fs-channel.js');
+import http from 'node:http';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { FsChannel } from './fs-channel.js';
 
 // ── Configuration ──
 

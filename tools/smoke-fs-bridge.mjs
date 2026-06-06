@@ -16,10 +16,7 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 import { createHmac, hkdfSync, randomBytes } from 'node:crypto';
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
-const { FsChannel } = require('../fs-channel.js');
+import { FsChannel } from '../fs-channel.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bridgePath = path.join(here, '..', 'webmcp-bridge.js');

@@ -1,11 +1,11 @@
 {
   "name": "@gcu/webmcp",
   "version": "0.1.0",
-  "description": "Zero-dependency WebMCP bridge: connect Claude Code (or any MCP stdio client) to GCU browser surfaces over localhost. One bridge per app, per-app port, machine-global token.",
+  "description": "Zero-dependency WebMCP bridge: connect Claude Code / Claude Desktop (or any MCP stdio client) to GCU browser surfaces — over a localhost socket, or a shared folder (fs transport: no port, no extension). Runs on node, bun, or deno.",
   "license": "MIT",
   "author": "Arthur Endlein Correia",
   "repository": { "type": "git", "url": "https://github.com/gentropic/webmcp.git" },
-  "type": "commonjs",
+  "type": "module",
   "bin": { "webmcp-bridge": "webmcp-bridge.js" },
   "files": ["webmcp-bridge.js", "shim.js", "fs-channel.js", "SPEC.md", "TRANSPORTS.md", "README.md"],
   "scripts": {

@@ -38,11 +38,7 @@
 // The host drives time: call tick() on an interval (bridge/shim) or in a loop
 // (smoke). The host MUST NOT overlap ticks (await one before the next).
 
-(function (root, factory) {
-  var api = factory();
-  if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  else root.GcuFsChannel = api;
-}(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+const GcuFsChannel = (function () {
   'use strict';
 
   var FS_VERSION = 1;
@@ -280,4 +276,12 @@
   FsChannel.prototype.stop = function () { this._setState('closed'); this._outQueue.length = 0; };
 
   return { FsChannel: FsChannel, FS_VERSION: FS_VERSION };
-}));
+})();
+
+// ESM exports for node / Deno / JSR. The IIFE above keeps the internal helpers
+// (canon, ctEq, outboxOf, …) scoped, so app builds that flat-concat this file (e.g.
+// weir strips the `export`s and inlines the rest) gain no extra top-level names.
+export const FsChannel = GcuFsChannel.FsChannel;
+export const FS_VERSION = GcuFsChannel.FS_VERSION;
+// Browser: the shim loads this as a plain inlined script and reads this global.
+if (typeof globalThis !== 'undefined') globalThis.GcuFsChannel = GcuFsChannel;

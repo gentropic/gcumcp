@@ -1,0 +1,17 @@
+{
+  "name": "@gcu/webmcp",
+  "version": "0.1.0",
+  "exports": "./webmcp-bridge.js",
+  "publish": {
+    "include": [
+      "webmcp-bridge.js",
+      "fs-channel.js",
+      "shim.js",
+      "SPEC.md",
+      "TRANSPORTS.md",
+      "README.md",
+      "LICENSE",
+      "deno.json"
+    ]
+  }
+}

@@ -29,7 +29,9 @@ try {
   // about:blank in headless). Fulfill every request with an empty page.
   await page.route('**/*', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><html><head></head><body></body></html>' }));
   await page.goto('https://webmcp.test/');
-  await page.addScriptTag({ content: channelCode });   // global GcuFsChannel
+  // Inline fs-channel the way an app build does — weir strips the `export ` keyword and
+  // flat-concats — leaving the plain IIFE + the `globalThis.GcuFsChannel` the shim reads.
+  await page.addScriptTag({ content: channelCode.replace(/^export /gm, '') });
   await page.addScriptTag({ content: shimCode });        // navigator.modelContext + gcuWebMCP
 
   // sanity: secure context + the FsChannel global + subtle present

@@ -238,6 +238,7 @@
       randomId: function () { return _randHex(8); },
       onMessage: function (msg) { _handleMessage(msg); },
       onState: function (s) { if (s === 'closed') _setState('disconnected'); },   // 'connected' is set on `welcome`
+      onWarn: function (m) { if (typeof console !== 'undefined') console.warn('[gcu-webmcp] fs:', m); },   // always-on (forged/stale frames)
     });
     var t = { type: 'fs', channel: channel, token: token, polling: true, timer: null };
     _transport = t;

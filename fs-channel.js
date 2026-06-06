@@ -49,9 +49,19 @@
   var SKEW_MS = 5 * 60 * 1000;        // frame freshness / replay window
   var ANNOUNCE_INTERVAL_MS = 30000;   // bridge.live refresh cadence (the ONLY periodic write)
   var LIVENESS_MS = 90000;            // page treats the bridge as down if bridge.live is older
+  var SEG_RE = /^[A-Za-z0-9_-]+$/;    // a safe session/epoch path segment (defense-in-depth vs ../ traversal)
 
   function outboxOf(role) { return role === 'bridge' ? 'to-page' : 'to-bridge'; }
   function inboxOf(role) { return role === 'bridge' ? 'to-bridge' : 'to-page'; }
+
+  // Constant-time hex-string compare for HMAC verification (no early-exit timing leak).
+  function ctEq(a, b) {
+    a = String(a); b = String(b);
+    if (a.length !== b.length) return false;
+    var d = 0;
+    for (var i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    return d === 0;
+  }
 
   // The signed string binds the envelope to the payload — editing any field, or
   // moving a sentinel onto a different payload, breaks the HMAC.
@@ -68,6 +78,10 @@
     this._onMessage = opts.onMessage || function () {};
     this._onState = opts.onState || function () {};
     this._log = opts.log || function () {};
+    // Security/degrade events (bad HMAC, stale frame, forged announce) — the host should
+    // wire this to an ALWAYS-ON sink (stderr / console.warn), not a debug-gated log, so a
+    // silent wedge can't hide (TRANSPORTS §4). Falls back to _log if not provided.
+    this._warn = opts.onWarn || opts.log || function () {};
     this.session = null;
     this.epoch = null;
     this.state = 'connecting';
@@ -108,26 +122,27 @@
     this._lastAnnounce = ts;
   };
 
-  // bridge: adopt the freshest connection epoch (a page reload = a new epoch) and
-  // sweep the others. Resets the per-connection counters when the epoch changes.
+  // bridge: adopt a (re)connecting page's epoch — but ONLY one whose hello (to-bridge/0)
+  // is HMAC-AUTHENTIC, so a folder-writer without the key can neither win adoption nor
+  // trigger a sweep. The handshake/control plane is authenticated, not just frame
+  // delivery. Only the previously-adopted (already-authenticated) epoch is reaped on a
+  // switch; unauthenticated/junk dirs are left untouched — we never rmrf on unverified
+  // input (a future TTL can reap litter; a folder-writer can already litter regardless).
   FsChannel.prototype._adoptEpoch = async function () {
     var epochs = await this._dir.list('sessions/' + this.session);
     var best = null, bestTs = -1;
     for (var i = 0; i < epochs.length; i++) {
       var ep = epochs[i];
-      var raw = await this._dir.read('sessions/' + this.session + '/' + ep + '/to-bridge/0.ready');  // the hello sentinel
-      if (raw == null) continue;
-      var s; try { s = JSON.parse(raw); } catch (e) { continue; }
-      if (s && typeof s.ts === 'number' && s.ts > bestTs) { bestTs = s.ts; best = ep; }
+      if (ep === this.epoch || !SEG_RE.test(ep)) continue;   // current conn (hello consumed), or an unsafe name
+      var v = await this._verify(ep, 'to-bridge', 0);        // authenticate the hello before trusting this epoch
+      if (v.status === 'ok' && v.ts > bestTs) { bestTs = v.ts; best = ep; }
     }
-    if (best && best !== this.epoch) {
+    if (best) {                                              // an authenticated (re)connecting page
+      var old = this.epoch;
       this.epoch = best;
       this._resetConn();
       await this._dir.mkdirp(this._epochDir('to-page'));
-    }
-    // sweep stale epoch dirs (previous reloads); never the one we serve
-    for (var j = 0; j < epochs.length; j++) {
-      if (epochs[j] !== this.epoch) await this._dir.rmrf('sessions/' + this.session + '/' + epochs[j]);
+      if (old) await this._dir.rmrf('sessions/' + this.session + '/' + old);   // reap the superseded (authenticated) connection
     }
   };
 
@@ -141,8 +156,9 @@
     if (!ann || typeof ann.payload !== 'string') return false;
     var b; try { b = JSON.parse(ann.payload); } catch (e) { return false; }
     if (!b || b.v !== FS_VERSION) return false;
+    if (typeof b.session !== 'string' || !SEG_RE.test(b.session)) { this._warn('announce has an unsafe session id — ignored'); return false; }
     var expect = await this._hmac(canon(b.session, '-', 'announce', 0, b.ts, ann.payload.length, ann.payload));
-    if (expect !== ann.sig) { this._log('bad announce sig'); return false; }
+    if (!ctEq(expect, ann.sig)) { this._warn('bad announce HMAC (forged bridge.live?) — ignored'); return false; }
     if (this._now() - b.ts > LIVENESS_MS) { this._log('bridge.live stale — bridge presumed down'); return false; }
     if (this.session !== b.session) {            // first sight or a bridge restart → fresh connection
       this.session = b.session;
@@ -188,6 +204,28 @@
     await this._dir.remove(base + '.ready');
   };
 
+  // The single authentication chokepoint: read + cryptographically verify frame `seq`
+  // in (`epoch`,`dir`). Used by BOTH delivery (_drainInbox) and bridge epoch adoption
+  // (_adoptEpoch), so a control-plane decision is never made on unverified input.
+  // Returns { status, msg, ts }:
+  //   'wait'   — not yet fully present/synced (missing/torn sentinel, or short payload) → retry
+  //   'reject' — present but bad (wrong fields, stale ts, or bad HMAC) → caller removes it
+  //   'ok'     — verified; `msg` is the parsed wire message, `ts` its timestamp
+  FsChannel.prototype._verify = async function (epoch, dir, seq) {
+    var base = 'sessions/' + this.session + '/' + epoch + '/' + dir + '/' + seq;
+    var rawR = await this._dir.read(base + '.ready');
+    if (rawR == null) return { status: 'wait' };
+    var sent; try { sent = JSON.parse(rawR); } catch (e) { return { status: 'wait' }; }   // torn sentinel mid-sync
+    if (!sent || sent.v !== FS_VERSION || sent.session !== this.session || sent.epoch !== epoch || sent.dir !== dir || sent.seq !== seq) return { status: 'reject' };
+    if (Math.abs(this._now() - sent.ts) > SKEW_MS) { this._warn('stale frame ' + dir + '/' + seq + ' (clock skew > ' + (SKEW_MS / 1000) + 's, or replay)'); return { status: 'reject' }; }
+    var payload = await this._dir.read(base + '.json');
+    if (payload == null || payload.length !== sent.len) return { status: 'wait' };          // not fully synced yet
+    var expect = await this._hmac(canon(this.session, epoch, dir, seq, sent.ts, sent.len, payload));
+    if (!ctEq(expect, sent.sig)) { this._warn('bad frame HMAC ' + dir + '/' + seq + ' (forged or tampered) — dropped'); return { status: 'reject' }; }
+    var msg; try { msg = JSON.parse(payload); } catch (e) { return { status: 'reject' }; }
+    return { status: 'ok', msg: msg, ts: sent.ts };
+  };
+
   // Consume the peer's outbox: verify + deliver in seq order, exactly once.
   FsChannel.prototype._drainInbox = async function () {
     var dir = inboxOf(this.role);
@@ -206,22 +244,14 @@
       if (seq <= this._lastIn) { await this._remove(base); continue; }   // already delivered → sweep
       if (seq !== this._lastIn + 1) break;                               // gap → wait for the missing seq
 
-      var rawR = await this._dir.read(base + '.ready');
-      if (rawR == null) continue;
-      var sent; try { sent = JSON.parse(rawR); } catch (e) { continue; }     // torn sentinel → retry next tick
-      if (!sent || sent.v !== FS_VERSION || sent.session !== this.session || sent.epoch !== this.epoch || sent.seq !== seq || sent.dir !== dir) break;
-      if (Math.abs(this._now() - sent.ts) > SKEW_MS) { this._log('stale frame ' + seq); await this._remove(base); break; }
+      var v = await this._verify(this.epoch, dir, seq);
+      if (v.status === 'wait') break;                                    // not fully synced → retry next tick
+      if (v.status === 'reject') { await this._remove(base); break; }    // forged/stale → drop it, retry the slot
 
-      var payload = await this._dir.read(base + '.json');
-      if (payload == null || payload.length !== sent.len) break;         // not fully synced yet → wait
-      var expect = await this._hmac(canon(this.session, this.epoch, dir, seq, sent.ts, sent.len, payload));
-      if (expect !== sent.sig) { this._log('bad frame sig ' + seq); await this._remove(base); break; }
-
-      var msg; try { msg = JSON.parse(payload); } catch (e) { await this._remove(base); break; }
       this._lastIn = seq;
       if (this.role === 'bridge') this._setState('open');               // a page is talking
       await this._remove(base);
-      try { this._onMessage(msg); } catch (e) { this._log('onMessage threw'); }
+      try { this._onMessage(v.msg); } catch (e) { this._log('onMessage threw'); }
     }
   };
 

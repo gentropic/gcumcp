@@ -177,11 +177,15 @@ frame is authenticated**, which a folder requires precisely because it has no
 socket to anchor session identity to:
 
 - **Key.** Reuse the existing machine token (`~/.gcu/webmcp.json`, SPEC §5) — no
-  new secret to provision. Derive per-surface keys: `key = HKDF(token, "webmcp-fs|"
-  + folderId)`, so the same token yields distinct keys per exchange dir, and a
-  reserved second output slot can become an AES key if a fully-untrusted folder
-  ever needs payload encryption (deferred — WebRTC/DTLS covers the wire in v1.5,
-  and an own-cluster sync folder faces replay/injection, not eavesdropping).
+  new secret to provision. Derive a per-app key: `key = HKDF-SHA256(ikm = token,
+  salt = "" , info = "webmcp-fs|" + appId, len = 32)`, so the same token yields a
+  distinct key per app and the page derives the identical key from the same token +
+  its app id (node `crypto.hkdfSync` ↔ browser `crypto.subtle` HKDF, verified to
+  match). A reserved future HKDF output could become an AES key if a fully-untrusted
+  folder ever needs payload encryption (deferred — WebRTC/DTLS covers the wire in
+  v1.5, and an own-cluster sync folder faces replay/injection, not eavesdropping).
+  HMAC verification is **constant-time**; the handshake announce and the bridge's
+  epoch adoption are HMAC-authenticated too, not just frame delivery.
 - **Per-frame auth.** HMAC over the canonical payload (in the sentinel, §3.3).
 - **Replay/freshness.** Reject a `seq` already delivered for `(session, epoch,
   dir)`; reject `ts` outside ±`SKEW`. A restored/duplicated old frame fails both.

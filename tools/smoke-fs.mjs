@@ -142,6 +142,20 @@ async function main() {
   ok(page2.epoch !== ep, 'reconnect minted a new epoch');
   ok(!(await dir.list(`sessions/${sess}`)).includes(ep), 'bridge swept the stale (old-reload) epoch dir');
 
+  // ── 6. forged epoch: a bad-HMAC hello must NOT win adoption or sweep the real one ──
+  // (a folder-writer without the key trying a pre-auth handshake hijack/DoS)
+  console.log('forged-epoch rejection:');
+  const realEpoch = bridge.epoch;                         // page2's authenticated epoch
+  const fbase = `sessions/${bridge.session}/forgedepoch/to-bridge`;
+  await dir.mkdirp(fbase);
+  const fpay = JSON.stringify({ type: 'hello', name: 'evil' });
+  // fresh ts (would win ts-ranking) but signed with the WRONG key — bad HMAC
+  await dir.write(`${fbase}/0.json`, fpay);
+  await dir.write(`${fbase}/0.ready`, JSON.stringify({ v: FS_VERSION, session: bridge.session, epoch: 'forgedepoch', dir: 'to-bridge', seq: 0, ts: Date.now(), len: fpay.length, sig: 'deadbeef'.repeat(8) }));
+  await bridge.tick(); await bridge.tick();
+  ok(bridge.epoch === realEpoch, 'forged epoch (bad HMAC) was NOT adopted');
+  ok((await dir.list(`sessions/${bridge.session}`)).includes(realEpoch), 'the authenticated epoch was NOT swept by the forgery');
+
   await rm(root, { recursive: true, force: true });
 }
 

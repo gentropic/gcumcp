@@ -74,17 +74,19 @@ function loadOrCreateToken() {
 
 const sessionToken = loadOrCreateToken();
 
-// fs transport: per-app HMAC key = HKDF(machine token, salt='webmcp-fs|<FS_ID>').
-// Salting by FS_ID means the same machine token yields a distinct key per app, and
-// the page derives the identical key from the same token + its app id. The key
-// never travels — only the machine token does (provisioned out-of-band, §4.1).
+// fs transport: per-app HMAC key = HKDF-SHA256 of the machine token with an EMPTY
+// salt and info='webmcp-fs|<FS_ID>' (32 bytes). The info (not the salt) carries the
+// app id, so the same machine token yields a distinct key per app and the page
+// derives the identical key from the same token + its app id via crypto.subtle. The
+// key never travels — only the machine token does (provisioned out-of-band, §4.1).
 const fsKey = TRANSPORT === 'fs'
   ? Buffer.from(crypto.hkdfSync('sha256', Buffer.from(sessionToken, 'utf8'), Buffer.alloc(0), Buffer.from('webmcp-fs|' + FS_ID, 'utf8'), 32))
   : null;
 
 // Capability gate (SPEC: TRANSPORTS §4) — a launch-time allow-list of tool-name
-// globs; built-ins always allowed. Applies to every transport.
-const allowRes = ALLOW.map((g) => new RegExp('^' + g.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$'));
+// globs; built-ins always allowed. Applies to every transport. `*`→`.*`, anchored;
+// all other regex metachars (incl. `?`) are escaped so a glob can't over-match.
+const allowRes = ALLOW.map((g) => new RegExp('^' + g.replace(/[.+^${}()|[\]\\?]/g, '\\$&').replace(/\*/g, '.*') + '$'));
 function toolAllowed(name) {
   if (name === 'listClients' || name === 'getConnectionInfo') return true;
   return allowRes.some((re) => re.test(name));
@@ -571,7 +573,15 @@ let fsChannel = null, fsClientId = null;
 
 function makeFsDir(rootDir) {
   const fsp = fs.promises;
-  const P = (name) => path.join(rootDir, name);
+  const root = path.resolve(rootDir);
+  // Containment guard: every op resolves under `root` or throws — defense-in-depth so a
+  // crafted/forged path segment can never escape the exchange folder (esp. the recursive
+  // rmrf). fs-channel also validates session/epoch segments; this is the belt to that.
+  const P = (name) => {
+    const p = path.resolve(root, name);
+    if (p !== root && !p.startsWith(root + path.sep)) throw new Error(`fs path escapes the exchange folder: ${name}`);
+    return p;
+  };
   return {
     async read(name) { try { return await fsp.readFile(P(name), 'utf8'); } catch { return null; } },
     // atomic on a single fs: temp + rename (a reader never sees a partial local write)
@@ -617,6 +627,7 @@ function startFsBridge() {
     randomId: () => crypto.randomBytes(8).toString('hex'),
     onMessage: onFsMessage,
     onState: (s) => stderr(`fs channel ${s}`),
+    onWarn: (m) => stderr(`fs: ${m}`),   // always-on: forged/stale frames, bad announce — never hidden
     log: (m) => { if (process.env.GCU_WEBMCP_DEBUG) stderr('fs: ' + m); },
   });
   fsChannel.start().then(() => {

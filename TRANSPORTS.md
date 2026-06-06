@@ -366,6 +366,31 @@ gcuFetch` forces HTTP today) — and `gcuWebMCP.connect("<machine-token>")` with
   context (https / localhost / file://); the page derives the same key the bridge
   did from the same token + app id.
 
+### 6.2 The folder is an open protocol — the bridge is optional
+
+The bridge only translates **MCP-stdio ↔ folder frames**. It is *not* load-bearing:
+**any process that can read/write the folder and compute an HMAC is a valid peer.**
+So the `fs` transport is an open interface, not just an MCP thing.
+
+- **An fs-capable agent needs no bridge at all.** Claude *Code* has built-in
+  filesystem + shell tools, so it can drive a surface by writing `tool_invoke` frames
+  and reading `tool_result` frames *directly* — no bridge process, no `.mcp.json`.
+  Clunkier than typed MCP tools (you hand-build + poll frames), so the bridge stays
+  the ergonomic default — but it's a convenience layer, not a requirement.
+- **A non-JS reference driver** (a ~40-line Python/shell `query`/`relate` that signs
+  + exchanges frames) would let *any* automation drive a surface. Worth shipping as a
+  deferred artifact — it makes "open by construction" concrete.
+- **No unsigned mode.** HMAC is *not* a JS-runtime dependency — `openssl dgst -sha256
+  -hmac`, .NET `HMACSHA256`, Python `hmac` all do it — so "no runtime" rarely means
+  "can't sign." Unsigned would be sound *only* for a **local un-synced** folder
+  (folder-access already = the credential), but we can't detect sync, so it's a
+  footgun for ~no real audience. Keep signing.
+- **Claude Desktop is the exception that proves the rule.** Unlike Code, Desktop has
+  **no built-in fs/exec** — it acts *only* through MCP servers, so it always needs a
+  process = a runtime. The `fs` transport removes Desktop's *port + extension*, never
+  the *process*; the direct-folder / no-runtime escape hatch is Code-only. Desktop's
+  no-runtime answer is a **runtime-bundled extension** (§9), not unsigned frames.
+
 ---
 
 ## 7. WebRTC upgrade — v1.5 seam (spec now, build next)
@@ -460,6 +485,16 @@ is additive.
 - **v1.5 — WebRTC upgrade** (§7), folder-signalled, opportunistic, STUN-only.
 - **v2 — hardening:** payload encryption option, multi-peer per folder, TURN, a
   shared consent helper (SPEC §10).
+- **Distribution / reach (deferred):**
+  - **Claude Desktop bundle.** Desktop has no fs/exec — it needs the bridge as an MCP
+    *server*, and a bare machine may have no node. Package the bridge as a
+    **runtime-bundled Desktop Extension** (`.dxt` / the newer `.mcpb` MCP-bundle):
+    one-click install, node bundled, no config editing, no loose-binary code-signing.
+    The right Desktop answer (better than `deno compile` signed binaries). *Verify the
+    current bundle format/manifest before building — Anthropic renamed it once.*
+  - **Non-JS reference driver** (§6.2). A ~40-line Python/shell `query`/`relate` that
+    signs + exchanges folder frames — makes "any fs tool can drive a surface" concrete,
+    and documents the open protocol by example.
 
 ---
 

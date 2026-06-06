@@ -297,6 +297,13 @@ tools in `mcp-adapter.js`. To migrate:
 - **Consent vocabulary.** Should the access/confirm model be standardised across
   adapters (a shared helper in this package) or left per-app? Leaning shared
   helper, eventually.
-- **User-scope install.** Register the bridge once at user scope so any project
-  gets it, vs per-repo `.mcp.json`. Per-repo is clearer for per-app ports; revisit
-  if it's annoying.
+- **User-scope install.** *Resolved by the `fs` transport + distribution.* The bridge
+  is launched per-surface via `npx -y github:gentropic/webmcp --app <x> --transport fs`
+  (`claude mcp add … --scope user` for Claude Code; the same in Claude Desktop's
+  config) — no clone, no per-app port, no npm key. `--setup` emits both clients' config.
+  See the README + TRANSPORTS §6. (Future: `npx @gcu/webmcp` once on npm, `deno run
+  jsr:@gcu/webmcp` once on JSR.)
+- **Zero-paste first connect** *(still open, fs flavour).* For `fs`, a local (un-synced)
+  folder's access already *is* the credential, so the bridge could drop a bootstrap hint
+  the page reads — but that leaks the cluster secret on a *synced* folder, so it'd be
+  local-only + opt-in. Not built; one-time token paste persists for now.

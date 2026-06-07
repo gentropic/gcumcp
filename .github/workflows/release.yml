@@ -1,0 +1,37 @@
+# Build the Claude Desktop bundle on each published Release and attach gcumcp.mcpb
+# to it. Smoke-gated so a broken build never ships. Zero-dep, so no install step —
+# `npm run mcpb` fetches @anthropic-ai/mcpb via npx and packs gcumcp-bridge.js +
+# fs-channel.js + manifest.json into dist/gcumcp.mcpb.
+name: release-mcpb
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: {}   # allow a manual build from the Actions tab
+
+permissions:
+  contents: write          # upload the asset onto the release
+
+jobs:
+  build-mcpb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Smoke (gate the release)
+        run: npm run smoke
+      - name: Build the Claude Desktop bundle
+        run: npm run mcpb
+      - name: Attach gcumcp.mcpb to the release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/gcumcp.mcpb
+      - name: Upload as a workflow artifact (manual runs)
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcumcp-mcpb
+          path: dist/gcumcp.mcpb

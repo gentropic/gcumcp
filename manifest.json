@@ -1,0 +1,43 @@
+{
+  "manifest_version": "0.3",
+  "name": "gcu-webmcp",
+  "version": "0.1.0",
+  "description": "Let Claude Desktop drive your GCU browser surfaces (weir, …) over a shared folder — no port, no extension.",
+  "long_description": "Installs the @gcu/webmcp bridge in multi-surface watch mode: one bridge that serves every surface folder under ~/webmcp (one subfolder per app). Connect a surface by picking its folder + pasting your token in its WebMCP settings; new surfaces light up automatically. Uses the fs transport (no localhost port, no browser extension). Claude Desktop's bundled Node runtime runs it — nothing else to install.",
+  "author": { "name": "Arthur Endlein Correia" },
+  "homepage": "https://github.com/gentropic/webmcp",
+  "documentation": "https://github.com/gentropic/webmcp/blob/main/TRANSPORTS.md",
+  "license": "MIT",
+  "keywords": ["mcp", "webmcp", "gcu", "weir", "local-first"],
+  "server": {
+    "type": "node",
+    "entry_point": "webmcp-bridge.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/webmcp-bridge.js",
+        "--transport", "fs",
+        "--watch", "${user_config.folder}"
+      ],
+      "env": {
+        "GCU_WEBMCP_TOKEN": "${user_config.token}"
+      }
+    }
+  },
+  "user_config": {
+    "folder": {
+      "type": "directory",
+      "title": "Surfaces folder",
+      "description": "Parent folder watched for GCU surfaces — one subfolder per app (e.g. <folder>/weir). The default ~/webmcp is fine for most.",
+      "default": "${HOME}/webmcp",
+      "required": true
+    },
+    "token": {
+      "type": "string",
+      "title": "Shared token",
+      "description": "A strong secret you choose (e.g. a random string from a password manager). Paste this SAME value into each surface's WebMCP settings when you connect its folder. Keep it private — anyone who can write the folder AND has this token can drive your surfaces.",
+      "sensitive": true,
+      "required": true
+    }
+  }
+}

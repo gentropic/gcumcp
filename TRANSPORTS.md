@@ -1,4 +1,4 @@
-# @gcu/gcumcp — Transports
+# @gcu/numen — Transports
 
 Status: **draft, v0.1.** Extends [SPEC.md §4](SPEC.md). Records the design for a
 *pluggable transport layer* and a new **filesystem transport** (`fs`) that carries
@@ -188,7 +188,7 @@ socket to anchor session identity to:
 
 - **Key.** Reuse the existing machine token (`~/.gcu/webmcp.json`, SPEC §5) — no
   new secret to provision. Derive a per-app key: `key = HKDF-SHA256(ikm = token,
-  salt = "" , info = "gcumcp-fs|" + appId, len = 32)`, so the same token yields a
+  salt = "" , info = "numen-fs|" + appId, len = 32)`, so the same token yields a
   distinct key per app and the page derives the identical key from the same token +
   its app id (node `crypto.hkdfSync` ↔ browser `crypto.subtle` HKDF, verified to
   match). A reserved future HKDF output could become an AES key if a fully-untrusted
@@ -312,13 +312,13 @@ one session to drive both.
 
 ## 6. The bridge in `fs` mode
 
-The agent side is the **existing `gcumcp-bridge.js`**, gaining an `fs` backend —
+The agent side is the **existing `numen-bridge.js`**, gaining an `fs` backend —
 not a new binary, and not per-app. Its MCP-facing side is unchanged stdio
 JSON-RPC; only its surface-facing side swaps the socket for the folder:
 
 ```json
 { "mcpServers": { "webmcp-weir": { "command": "node",
-  "args": ["gcumcp-bridge.js", "--app", "weir",
+  "args": ["numen-bridge.js", "--app", "weir",
            "--transport", "fs", "--folder", "~/webmcp/weir"] } } }
 ```
 
@@ -334,7 +334,7 @@ surface-agnostic — it relays frames and merges the tool list the page sends. S
 
 - **One bridge install, parameterized per surface by `--folder`.** This resolves
   SPEC §10's "user-scope install" question: the *binary* installs once (global /
-  `npx @gcu/gcumcp`); *identity* stays explicit in the `--folder` arg, so
+  `npx @gcu/numen`); *identity* stays explicit in the `--folder` arg, so
   registration can be per-repo `.mcp.json` (keeps app identity with the app, as
   today) **or** user-scope — both work because identity no longer hinges on where
   the process was launched. Recommended: global binary, per-app `.mcp.json` entry.
@@ -362,7 +362,7 @@ gcuFetch` forces HTTP today) — and `gcuWebMCP.connect("<machine-token>")` with
   dropped** (the seq commits only on success — a transient lock/AV/sync error must
   not burn a seq and wedge the channel).
 - **Key derivation** matches the bridge exactly via `crypto.subtle`: `HKDF(token,
-  salt='', info='gcumcp-fs|'+gcuWebMCP.name)` → HMAC-SHA256 → hex. Needs a secure
+  salt='', info='numen-fs|'+gcuWebMCP.name)` → HMAC-SHA256 → hex. Needs a secure
   context (https / localhost / file://); the page derives the same key the bridge
   did from the same token + app id.
 
@@ -533,7 +533,7 @@ is additive.
   shared consent helper (SPEC §10).
 - **Distribution / reach:**
   - **Claude Desktop bundle — ✅ built.** `manifest.json` (MCPB v0.3) + `npm run mcpb`
-    (`tools/build-mcpb.mjs`) → `dist/gcumcp.mcpb` (~20 kB, validated). A node server
+    (`tools/build-mcpb.mjs`) → `dist/numen.mcpb` (~20 kB, validated). A node server
     running the bridge in **multi-surface watch mode** (`--watch ${user_config.folder}`,
     default `~/webmcp`); `user_config` collects the folder + a sensitive token (→ OS
     keychain → `GCU_WEBMCP_TOKEN`). Claude Desktop's **bundled Node** runs it — no node

@@ -14,7 +14,7 @@ import { createHmac, hkdfSync, randomBytes } from 'node:crypto';
 import { FsChannel } from '../fs-channel.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const bridgePath = path.join(here, '..', 'gcumcp-bridge.js');
+const bridgePath = path.join(here, '..', 'numen-bridge.js');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gcu-watch-home-'));
@@ -38,8 +38,8 @@ function cleanup() { try { proc.kill(); } catch {} for (const d of [tmpHome, wat
 
 await Promise.race([ready, sleep(6000).then(() => { throw new Error('bridge did not announce 2 surfaces'); })]).catch(fail);
 
-const token = JSON.parse(fs.readFileSync(path.join(tmpHome, '.gcu', 'gcumcp.json'), 'utf8')).token;
-const keyFor = (app) => Buffer.from(hkdfSync('sha256', Buffer.from(token, 'utf8'), Buffer.alloc(0), Buffer.from('gcumcp-fs|' + app, 'utf8'), 32));
+const token = JSON.parse(fs.readFileSync(path.join(tmpHome, '.gcu', 'numen.json'), 'utf8')).token;
+const keyFor = (app) => Buffer.from(hkdfSync('sha256', Buffer.from(token, 'utf8'), Buffer.alloc(0), Buffer.from('numen-fs|' + app, 'utf8'), 32));
 function makeDir(root) {
   const P = (n) => path.join(root, n);
   return {
@@ -74,7 +74,7 @@ try {
   // wait for BOTH surfaces to become ready clients
   let clients = [];
   for (let i = 0; i < 80; i++) {
-    clients = JSON.parse((await mcp('tools/call', { name: 'gcumcp_listClients', arguments: {} })).result.content[0].text);
+    clients = JSON.parse((await mcp('tools/call', { name: 'numen_listClients', arguments: {} })).result.content[0].text);
     if (clients.length >= 2) break;
     await sleep(120);
   }

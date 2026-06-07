@@ -1,27 +1,27 @@
 {
   "manifest_version": "0.3",
-  "name": "gcumcp",
-  "display_name": "GCUMCP",
+  "name": "numen",
+  "display_name": "Numen",
   "version": "0.1.1",
   "description": "Let Claude Desktop drive your GCU browser surfaces (weir, …) over a shared folder — no port, no extension.",
-  "long_description": "Installs the gcumcp (GCU Model Context Protocol) bridge in multi-surface watch mode: one bridge that serves every surface folder under ~/gcumcp (one subfolder per app). Connect a surface by picking its folder + pasting your token in its connection settings; new surfaces light up automatically. Uses the fs transport (no localhost port, no browser extension). Claude Desktop's bundled Node runtime runs it — nothing else to install. To drive a connected surface, Claude calls gcumcp_listTools then gcumcp_callTool.",
+  "long_description": "Installs the numen (GCU Model Context Protocol) bridge in multi-surface watch mode: one bridge that serves every surface folder under ~/numen (one subfolder per app). Connect a surface by picking its folder + pasting your token in its connection settings; new surfaces light up automatically. Uses the fs transport (no localhost port, no browser extension). Claude Desktop's bundled Node runtime runs it — nothing else to install. To drive a connected surface, Claude calls numen_listTools then numen_callTool.",
   "author": { "name": "Arthur Endlein Correia" },
-  "homepage": "https://github.com/gentropic/gcumcp",
-  "documentation": "https://github.com/gentropic/gcumcp/blob/main/TRANSPORTS.md",
+  "homepage": "https://github.com/gentropic/numen",
+  "documentation": "https://github.com/gentropic/numen/blob/main/TRANSPORTS.md",
   "license": "MIT",
-  "keywords": ["mcp", "gcumcp", "gcu", "weir", "local-first"],
+  "keywords": ["mcp", "numen", "gcu", "weir", "local-first"],
   "server": {
     "type": "node",
-    "entry_point": "gcumcp-bridge.js",
+    "entry_point": "numen-bridge.js",
     "mcp_config": {
       "command": "node",
       "args": [
-        "${__dirname}/gcumcp-bridge.js",
+        "${__dirname}/numen-bridge.js",
         "--transport", "fs",
         "--watch", "${user_config.folder}"
       ],
       "env": {
-        "GCUMCP_TOKEN": "${user_config.token}"
+        "NUMEN_TOKEN": "${user_config.token}"
       }
     }
   },
@@ -29,8 +29,8 @@
     "folder": {
       "type": "directory",
       "title": "Surfaces folder",
-      "description": "Parent folder watched for GCU surfaces — one subfolder per app (e.g. <folder>/weir). Use a ~/... path (the bridge expands ~) or Browse to an absolute one. Default ~/gcumcp is fine for most.",
-      "default": "~/gcumcp",
+      "description": "Parent folder watched for GCU surfaces — one subfolder per app (e.g. <folder>/weir). Use a ~/... path (the bridge expands ~) or Browse to an absolute one. Default ~/numen is fine for most.",
+      "default": "~/numen",
       "required": true
     },
     "token": {

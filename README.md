@@ -1,4 +1,4 @@
-# @gcu/gcumcp
+# @gcu/numen
 
 The official, zero-dependency way to connect **GCU browser surfaces** (weir,
 Auditable notebooks, anything that loads the shim) to **Claude Code**, **Claude
@@ -8,7 +8,7 @@ Desktop**, or any MCP stdio client.
 ┌──────────────────┐
 │  weir  (browser) │──WS/HTTP──┐
 └──────────────────┘           │   ┌──────────────────┐  stdio   ┌─────────────┐
-                               ├──►│  gcumcp-bridge   │◄────────►│ Claude Code │
+                               ├──►│  numen-bridge   │◄────────►│ Claude Code │
 ┌──────────────────┐           │   │  (node, :7801)   │   MCP    │             │
 │  another surface │──WS/HTTP──┘   └──────────────────┘          └─────────────┘
 └──────────────────┘
@@ -32,7 +32,7 @@ its security model in [TRANSPORTS.md](TRANSPORTS.md). This is the quick start.
 
 | File | Role |
 |---|---|
-| `gcumcp-bridge.js` | Node bridge: MCP stdio ⇄ WebSocket/HTTP/**fs** relay, tool merge, routing. Zero deps. Runs unmodified on node, `bun`, or `deno run`. |
+| `numen-bridge.js` | Node bridge: MCP stdio ⇄ WebSocket/HTTP/**fs** relay, tool merge, routing. Zero deps. Runs unmodified on node, `bun`, or `deno run`. |
 | `shim.js` | Generic WebMCP polyfill — `navigator.modelContext` + transport client. Vendor into each app's build. |
 | `fs-channel.js` | The `fs`-transport protocol core (signed-sentinel framing). Vendor **alongside** `shim.js` for fs support. |
 | `SPEC.md` · `TRANSPORTS.md` | Design + topology + assigned ports; the pluggable transports + fs protocol + security model. |
@@ -52,34 +52,34 @@ it. Use the **`fs` transport** — no port, no extension — run straight from G
 
 **Claude Code:**
 ```
-claude mcp add weir --scope user -- npx -y github:gentropic/gcumcp --app weir --transport fs
+claude mcp add weir --scope user -- npx -y github:gentropic/numen --app weir --transport fs
 ```
 **Claude Desktop — one-click bundle (recommended):** `npm run mcpb` →
-`dist/gcumcp.mcpb`; double-click it (or Settings → Extensions → Install). It
-installs **one multi-surface bridge** (`--watch ~/gcumcp`) that serves **every** GCU
+`dist/numen.mcpb`; double-click it (or Settings → Extensions → Install). It
+installs **one multi-surface bridge** (`--watch ~/numen`) that serves **every** GCU
 surface — no per-app config, and **Claude Desktop's bundled Node runs it (nothing else
-to install)**. At install it asks for a folder (default `~/gcumcp`) + a token you choose;
+to install)**. At install it asks for a folder (default `~/numen`) + a token you choose;
 paste that same token into each surface's WebMCP settings when you connect its folder.
 
 **Claude Desktop — manual config** (alternative): add to `claude_desktop_config.json`
 (`%APPDATA%\Claude\` on Windows, `~/Library/Application Support/Claude/` on macOS):
 ```json
 { "mcpServers": { "weir": { "command": "npx",
-  "args": ["-y", "github:gentropic/gcumcp", "--app", "weir", "--transport", "fs"] } } }
+  "args": ["-y", "github:gentropic/numen", "--app", "weir", "--transport", "fs"] } } }
 ```
 Then get the token + the exact connect steps:
 ```
-npx -y github:gentropic/gcumcp --app weir --transport fs --setup
+npx -y github:gentropic/numen --app weir --transport fs --setup
 ```
 It prints both client snippets, the machine token, the auto-created folder
-(`~/gcumcp/weir`), and the in-page step: open the surface's WebMCP settings → **pick
+(`~/numen/weir`), and the in-page step: open the surface's WebMCP settings → **pick
 that folder** → **paste the token** → **connect over folder**. The page remembers it.
 
 - **No npm key / publish needed** — `npx github:` runs the bin straight from the repo.
-- **Prefer Deno?** It's published on **[JSR](https://jsr.io/@gcu/gcumcp)** — point
-  `command` at `deno` and `args` at `run -A jsr:@gcu/gcumcp …` (versioned, no git
+- **Prefer Deno?** It's published on **[JSR](https://jsr.io/@gcu/numen)** — point
+  `command` at `deno` and `args` at `run -A jsr:@gcu/numen …` (versioned, no git
   fetch). `bun` runs the bridge unmodified too.
-- Once on npm, the node line also becomes `npx -y @gcu/gcumcp …`.
+- Once on npm, the node line also becomes `npx -y @gcu/numen …`.
 
 ## Quick start (wiring an app, e.g. weir)
 
@@ -105,10 +105,10 @@ that folder** → **paste the token** → **connect over folder**. The page reme
 3. **Wire the bridge.** For end users: the [Connect](#connect-a-surface-to-claude-no-clone-needed)
    section above (`npx github:` + `--transport fs`). For local dev against a clone:
    ```json
-   { "mcpServers": { "gcumcp-weir": { "command": "node",
-     "args": ["gcumcp-bridge.js", "--app", "weir", "--transport", "fs"] } } }
+   { "mcpServers": { "numen-weir": { "command": "node",
+     "args": ["numen-bridge.js", "--app", "weir", "--transport", "fs"] } } }
    ```
-   Run `node gcumcp-bridge.js --app weir --transport fs --setup` for the token + the
+   Run `node numen-bridge.js --app weir --transport fs --setup` for the token + the
    exact in-page connect steps. (Drop `--transport fs` for the localhost socket + the
    `@gcu/bridge` extension instead.)
 
@@ -120,7 +120,7 @@ the surface advertises.
 - **Ports** are app identity, not secret — committable. GCU reserves
   **7801–7820**; see the table in [SPEC.md §7](SPEC.md). weir = `7801`,
   auditable = `7802`.
-- **Token** is machine-global, created on first run at `~/.gcu/gcumcp.json`
+- **Token** is machine-global, created on first run at `~/.gcu/numen.json`
   (mode `600`). It gates who may attach to your localhost bridge. Never commit it.
   Pages persist their own `port:token` in origin-scoped storage.
 
@@ -134,7 +134,7 @@ brokered fetch (`gcuWebMCP.fetch = gcuFetch`) and the shim routes HTTP through t
 extension, sidestepping the gate (the path weir uses for Lemonade). See [SPEC §4.1](SPEC.md).
 
 **`fs`** — the same wire protocol over a **shared folder**: the bridge and page exchange
-signed frames in `~/gcumcp/<app>` (auto-created). **No port, no PNA, no extension** — so
+signed frames in `~/numen/<app>` (auto-created). **No port, no PNA, no extension** — so
 it's the clean path for a public-origin PWA, and it reaches another machine if you sync
 the folder. Inject `gcuWebMCP.folder = <handle>` and connect with the bare machine token.
 Polling-based, so it's snappy in a foreground tab and throttled (but lossless) when the

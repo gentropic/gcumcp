@@ -1,21 +1,21 @@
 {
-  "name": "@gcu/gcumcp",
+  "name": "@gcu/numen",
   "version": "0.1.1",
-  "description": "Zero-dependency gcumcp (GCU Model Context Protocol) bridge: connect Claude Code / Claude Desktop (or any MCP stdio client) to GCU browser surfaces (weir, …) — over a localhost socket, or a shared folder (fs transport: no port, no extension). Runs on node, bun, or deno.",
+  "description": "Zero-dependency numen (GCU Model Context Protocol) bridge: connect Claude Code / Claude Desktop (or any MCP stdio client) to GCU browser surfaces (weir, …) — over a localhost socket, or a shared folder (fs transport: no port, no extension). Runs on node, bun, or deno.",
   "license": "MIT",
   "author": "Arthur Endlein Correia",
-  "repository": { "type": "git", "url": "https://github.com/gentropic/gcumcp.git" },
+  "repository": { "type": "git", "url": "https://github.com/gentropic/numen.git" },
   "type": "module",
-  "bin": { "gcumcp-bridge": "gcumcp-bridge.js" },
-  "files": ["gcumcp-bridge.js", "shim.js", "fs-channel.js", "SPEC.md", "TRANSPORTS.md", "README.md"],
+  "bin": { "numen-bridge": "numen-bridge.js" },
+  "files": ["numen-bridge.js", "shim.js", "fs-channel.js", "SPEC.md", "TRANSPORTS.md", "README.md"],
   "scripts": {
-    "info": "node gcumcp-bridge.js --info",
+    "info": "node numen-bridge.js --info",
     "smoke": "node tools/smoke.mjs && node tools/smoke-fs.mjs && node tools/smoke-fs-bridge.mjs && node tools/smoke-fs-watch.mjs",
     "smoke:fs": "node tools/smoke-fs.mjs && node tools/smoke-fs-bridge.mjs && node tools/smoke-fs-watch.mjs",
     "e2e": "node tools/e2e-browser.mjs",
     "e2e:fs": "node tools/e2e-fs.mjs",
     "mcpb": "node tools/build-mcpb.mjs"
   },
-  "keywords": ["mcp", "gcumcp", "webmcp", "claude", "model-context-protocol", "gcu", "local-first"],
+  "keywords": ["mcp", "numen", "webmcp", "claude", "model-context-protocol", "gcu", "local-first"],
   "engines": { "node": ">=18" }
 }

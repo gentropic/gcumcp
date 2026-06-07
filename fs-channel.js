@@ -1,4 +1,4 @@
-// fs-channel.js — @gcu/gcumcp `fs` transport core. See TRANSPORTS.md §3.
+// fs-channel.js — @gcu/numen `fs` transport core. See TRANSPORTS.md §3.
 //
 // Dependency-free protocol shared by the bridge (node fs) and the shim (browser
 // FSA). PURE over injected adapters, so it runs anywhere and tests without a real

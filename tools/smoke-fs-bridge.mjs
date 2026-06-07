@@ -2,7 +2,7 @@
 // bridge process. The spec's named v1 proof (TRANSPORTS §9): Claude Code → a shared
 // folder → a (mock) page, with NO port and NO extension.
 //
-// Spawns gcumcp-bridge.js with `--transport fs --folder <tmp> --app test` in an
+// Spawns numen-bridge.js with `--transport fs --folder <tmp> --app test` in an
 // isolated $HOME, reads the machine token it creates, derives the same HMAC key,
 // runs a mock PAGE (an FsChannel peer) over the folder, and drives the bridge over
 // MCP stdio: initialize, tools/list, listClients, a round-trip tools/call. Zero deps.
@@ -19,17 +19,17 @@ import { createHmac, hkdfSync, randomBytes } from 'node:crypto';
 import { FsChannel } from '../fs-channel.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const bridgePath = path.join(here, '..', 'gcumcp-bridge.js');
+const bridgePath = path.join(here, '..', 'numen-bridge.js');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gcumcp-fs-'));
+const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'numen-fs-'));
 const exchange = fs.mkdtempSync(path.join(os.tmpdir(), 'gcu-fs-exch-'));
 const env = { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome };
 
 // Launch runtime is configurable so the same e2e exercises node, bun, deno, or a
 // COMPILED BINARY. WEBMCP_BRIDGE_RUN is a command template (default `node {script}`);
 // `{script}` is replaced with the bridge path, or omitted entirely for a self-contained
-// binary (e.g. WEBMCP_BRIDGE_RUN=/path/to/gcumcp-bridge.exe).
+// binary (e.g. WEBMCP_BRIDGE_RUN=/path/to/numen-bridge.exe).
 const runTmpl = (process.env.WEBMCP_BRIDGE_RUN || 'node {script}').split(' ').filter(Boolean);
 const runParts = runTmpl.map((p) => (p === '{script}' ? bridgePath : p));
 const bridgeArgs = ['--app', 'test', '--transport', 'fs', '--folder', exchange];
@@ -72,8 +72,8 @@ function cleanup() {
 await Promise.race([ready, sleep(5000).then(() => { throw new Error('fs bridge did not start in 5s'); })]).catch(fail);
 
 // ── mock page: an FsChannel peer over the same folder, with the same derived key ──
-const token = JSON.parse(fs.readFileSync(path.join(tmpHome, '.gcu', 'gcumcp.json'), 'utf8')).token;
-const fsKey = Buffer.from(hkdfSync('sha256', Buffer.from(token, 'utf8'), Buffer.alloc(0), Buffer.from('gcumcp-fs|test', 'utf8'), 32));
+const token = JSON.parse(fs.readFileSync(path.join(tmpHome, '.gcu', 'numen.json'), 'utf8')).token;
+const fsKey = Buffer.from(hkdfSync('sha256', Buffer.from(token, 'utf8'), Buffer.alloc(0), Buffer.from('numen-fs|test', 'utf8'), 32));
 const hmac = (s) => createHmac('sha256', fsKey).update(s).digest('hex');
 
 const fsp = fs.promises;
@@ -117,7 +117,7 @@ async function waitForTool(name, ms = 5000) {
 try {
   // ── 1. initialize ──
   const init = await mcp('initialize', {});
-  assert.equal(init.result.serverInfo.name, 'gcumcp-test', 'serverInfo carries --app');
+  assert.equal(init.result.serverInfo.name, 'numen-test', 'serverInfo carries --app');
 
   // ── 2. the page handshakes over the folder; its tool reaches MCP ──
   const list = await waitForTool('echo');
@@ -126,13 +126,13 @@ try {
   assert.deepEqual(echo.inputSchema.required, ['text'], 'surface tool schema preserved across the fs transport');
 
   // ── 3. listClients shows the fs client ──
-  const clientsCall = await mcp('tools/call', { name: 'gcumcp_listClients', arguments: {} });
+  const clientsCall = await mcp('tools/call', { name: 'numen_listClients', arguments: {} });
   const list2 = JSON.parse(clientsCall.result.content[0].text);
   assert.equal(list2.length, 1, 'one connected surface');
   assert.equal(list2[0].transport, 'fs', 'client transport is fs');
 
   // ── 4. getConnectionInfo reports fs mode (no port) ──
-  const info = JSON.parse((await mcp('tools/call', { name: 'gcumcp_getConnectionInfo', arguments: {} })).result.content[0].text);
+  const info = JSON.parse((await mcp('tools/call', { name: 'numen_getConnectionInfo', arguments: {} })).result.content[0].text);
   assert.equal(info.transport, 'fs', 'getConnectionInfo reports the fs transport');
   assert.equal(info.id, 'test', 'getConnectionInfo reports the fs id');
 

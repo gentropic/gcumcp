@@ -1,7 +1,7 @@
-# Build the Claude Desktop bundle on each published Release and attach gcumcp.mcpb
+# Build the Claude Desktop bundle on each published Release and attach numen.mcpb
 # to it. Smoke-gated so a broken build never ships. Zero-dep, so no install step —
-# `npm run mcpb` fetches @anthropic-ai/mcpb via npx and packs gcumcp-bridge.js +
-# fs-channel.js + manifest.json into dist/gcumcp.mcpb.
+# `npm run mcpb` fetches @anthropic-ai/mcpb via npx and packs numen-bridge.js +
+# fs-channel.js + manifest.json into dist/numen.mcpb.
 name: release-mcpb
 
 on:
@@ -24,14 +24,14 @@ jobs:
         run: npm run smoke
       - name: Build the Claude Desktop bundle
         run: npm run mcpb
-      - name: Attach gcumcp.mcpb to the release
+      - name: Attach numen.mcpb to the release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/gcumcp.mcpb
+          files: dist/numen.mcpb
       - name: Upload as a workflow artifact (manual runs)
         if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
         with:
-          name: gcumcp-mcpb
-          path: dist/gcumcp.mcpb
+          name: numen-mcpb
+          path: dist/numen.mcpb

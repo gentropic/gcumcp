@@ -1,4 +1,4 @@
-// End-to-end smoke test for @gcu/gcumcp: spin the bridge in an isolated $HOME,
+// End-to-end smoke test for @gcu/numen: spin the bridge in an isolated $HOME,
 // then drive the full path — MCP initialize/tools/list over stdio, a fake page
 // connecting over HTTP, tool registration, a round-trip tool call, token
 // rejection, and listClients. Zero deps. Run: node tools/smoke.mjs
@@ -10,10 +10,10 @@ import os from 'node:os';
 import fs from 'node:fs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const bridgePath = path.join(here, '..', 'gcumcp-bridge.js');
+const bridgePath = path.join(here, '..', 'numen-bridge.js');
 
-// Isolated HOME so we don't touch the real ~/.gcu/gcumcp.json.
-const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gcumcp-'));
+// Isolated HOME so we don't touch the real ~/.gcu/numen.json.
+const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'numen-'));
 const env = { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome };
 
 const proc = spawn('node', [bridgePath, '--app', 'test', '--port', '0'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -60,12 +60,12 @@ await Promise.race([ready, new Promise((_, r) => setTimeout(() => r(new Error('b
 try {
   // ── 1. MCP initialize + tools/list (no surface yet) ──
   const init = await mcp('initialize', {});
-  assert.equal(init.result.serverInfo.name, 'gcumcp-test', 'serverInfo carries --app');
+  assert.equal(init.result.serverInfo.name, 'numen-test', 'serverInfo carries --app');
   assert.equal(init.result.capabilities.tools.listChanged, true);
 
   let list = await mcp('tools/list', {});
   let names = list.result.tools.map((t) => t.name);
-  assert.ok(names.includes('gcumcp_listClients') && names.includes('gcumcp_getConnectionInfo'), 'built-in tools present');
+  assert.ok(names.includes('numen_listClients') && names.includes('numen_getConnectionInfo'), 'built-in tools present');
   assert.ok(!names.includes('echo'), 'no surface tools before a page connects');
 
   // ── 2a. PNA preflight grant (lets a secure public origin reach loopback) ──
@@ -126,7 +126,7 @@ try {
   assert.deepEqual(echo.inputSchema.required, ['text'], 'surface tool schema preserved');
 
   // ── 5. listClients ──
-  const clientsCall = await mcp('tools/call', { name: 'gcumcp_listClients', arguments: {} });
+  const clientsCall = await mcp('tools/call', { name: 'numen_listClients', arguments: {} });
   const clientsList = JSON.parse(clientsCall.result.content[0].text);
   assert.equal(clientsList.length, 1); assert.equal(clientsList[0].id, 'test'); assert.equal(clientsList[0].transport, 'http');
 
@@ -138,18 +138,18 @@ try {
 
   // ── 6b. Static dispatch pair (for hosts that don't honor tools/list_changed) ──
   const staticNames = list.result.tools.map((t) => t.name);
-  assert.ok(staticNames.includes('gcumcp_listTools') && staticNames.includes('gcumcp_callTool'), 'listTools/callTool are static built-ins');
-  const lt = JSON.parse((await mcp('tools/call', { name: 'gcumcp_listTools', arguments: {} })).result.content[0].text);
+  assert.ok(staticNames.includes('numen_listTools') && staticNames.includes('numen_callTool'), 'listTools/callTool are static built-ins');
+  const lt = JSON.parse((await mcp('tools/call', { name: 'numen_listTools', arguments: {} })).result.content[0].text);
   assert.ok(lt.tools.find((t) => t.name === 'echo'), 'listTools surfaces the surface\'s tools');
   assert.deepEqual(lt.tools.find((t) => t.name === 'echo').inputSchema.required, ['text'], 'listTools carries the tool schema');
-  const ct = await mcp('tools/call', { name: 'gcumcp_callTool', arguments: { name: 'echo', arguments: { text: 'via dispatch' } } });
+  const ct = await mcp('tools/call', { name: 'numen_callTool', arguments: { name: 'echo', arguments: { text: 'via dispatch' } } });
   assert.ok(!ct.result.isError, 'callTool succeeded');
   assert.equal(JSON.parse(ct.result.content[0].text).echoed, 'via dispatch', 'callTool routed to the surface tool');
-  const bad = await mcp('tools/call', { name: 'gcumcp_callTool', arguments: { name: 'nope' } });
+  const bad = await mcp('tools/call', { name: 'numen_callTool', arguments: { name: 'nope' } });
   assert.ok(bad.result.isError, 'callTool to an unknown surface tool errors (not a silent pass)');
 
   // ── 7. Token file was created in the isolated HOME ──
-  const tokFile = path.join(tmpHome, '.gcu', 'gcumcp.json');
+  const tokFile = path.join(tmpHome, '.gcu', 'numen.json');
   assert.ok(fs.existsSync(tokFile), 'machine token persisted');
   assert.equal(JSON.parse(fs.readFileSync(tokFile, 'utf8')).token, token, 'persisted token matches advertised');
 

@@ -63,7 +63,7 @@ try {
     async function fsHmac(token, id) {
       const enc = new TextEncoder();
       const ikm = await crypto.subtle.importKey('raw', enc.encode(token), 'HKDF', false, ['deriveBits']);
-      const bits = await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: enc.encode('gcumcp-fs|' + id) }, ikm, 256);
+      const bits = await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: enc.encode('numen-fs|' + id) }, ikm, 256);
       const key = await crypto.subtle.importKey('raw', bits, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
       return async (str) => { const s = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(str))); let h = ''; for (const b of s) h += b.toString(16).padStart(2, '0'); return h; };
     }

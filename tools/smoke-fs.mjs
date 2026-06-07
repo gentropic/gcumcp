@@ -45,7 +45,7 @@ async function pump(a, b, done, max = 60) {
 }
 
 async function main() {
-  const root = await mkdtemp(join(tmpdir(), 'gcumcp-fs-'));
+  const root = await mkdtemp(join(tmpdir(), 'numen-fs-'));
   const dir = makeNodeDir(root);
   let results = 0;   // tool_results the bridge has received (across connections)
 

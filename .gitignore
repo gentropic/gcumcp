@@ -10,7 +10,7 @@ dist/
 
 # Local machine config the bridge may write (token lives in ~/.gcu, not here,
 # but guard against a stray local copy or per-repo override).
-.gcu-webmcp.local.json
+.gcumcp.local.json
 *.local.json
 
 # OS / editor

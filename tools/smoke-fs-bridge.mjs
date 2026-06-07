@@ -2,7 +2,7 @@
 // bridge process. The spec's named v1 proof (TRANSPORTS §9): Claude Code → a shared
 // folder → a (mock) page, with NO port and NO extension.
 //
-// Spawns webmcp-bridge.js with `--transport fs --folder <tmp> --app test` in an
+// Spawns gcumcp-bridge.js with `--transport fs --folder <tmp> --app test` in an
 // isolated $HOME, reads the machine token it creates, derives the same HMAC key,
 // runs a mock PAGE (an FsChannel peer) over the folder, and drives the bridge over
 // MCP stdio: initialize, tools/list, listClients, a round-trip tools/call. Zero deps.
@@ -19,17 +19,17 @@ import { createHmac, hkdfSync, randomBytes } from 'node:crypto';
 import { FsChannel } from '../fs-channel.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const bridgePath = path.join(here, '..', 'webmcp-bridge.js');
+const bridgePath = path.join(here, '..', 'gcumcp-bridge.js');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gcu-webmcp-fs-'));
+const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gcumcp-fs-'));
 const exchange = fs.mkdtempSync(path.join(os.tmpdir(), 'gcu-fs-exch-'));
 const env = { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome };
 
 // Launch runtime is configurable so the same e2e exercises node, bun, deno, or a
 // COMPILED BINARY. WEBMCP_BRIDGE_RUN is a command template (default `node {script}`);
 // `{script}` is replaced with the bridge path, or omitted entirely for a self-contained
-// binary (e.g. WEBMCP_BRIDGE_RUN=/path/to/webmcp-bridge.exe).
+// binary (e.g. WEBMCP_BRIDGE_RUN=/path/to/gcumcp-bridge.exe).
 const runTmpl = (process.env.WEBMCP_BRIDGE_RUN || 'node {script}').split(' ').filter(Boolean);
 const runParts = runTmpl.map((p) => (p === '{script}' ? bridgePath : p));
 const bridgeArgs = ['--app', 'test', '--transport', 'fs', '--folder', exchange];
@@ -117,7 +117,7 @@ async function waitForTool(name, ms = 5000) {
 try {
   // ── 1. initialize ──
   const init = await mcp('initialize', {});
-  assert.equal(init.result.serverInfo.name, 'gcu-webmcp-test', 'serverInfo carries --app');
+  assert.equal(init.result.serverInfo.name, 'gcumcp-test', 'serverInfo carries --app');
 
   // ── 2. the page handshakes over the folder; its tool reaches MCP ──
   const list = await waitForTool('echo');
@@ -126,13 +126,13 @@ try {
   assert.deepEqual(echo.inputSchema.required, ['text'], 'surface tool schema preserved across the fs transport');
 
   // ── 3. listClients shows the fs client ──
-  const clientsCall = await mcp('tools/call', { name: 'listClients', arguments: {} });
+  const clientsCall = await mcp('tools/call', { name: 'gcumcp_listClients', arguments: {} });
   const list2 = JSON.parse(clientsCall.result.content[0].text);
   assert.equal(list2.length, 1, 'one connected surface');
   assert.equal(list2[0].transport, 'fs', 'client transport is fs');
 
   // ── 4. getConnectionInfo reports fs mode (no port) ──
-  const info = JSON.parse((await mcp('tools/call', { name: 'getConnectionInfo', arguments: {} })).result.content[0].text);
+  const info = JSON.parse((await mcp('tools/call', { name: 'gcumcp_getConnectionInfo', arguments: {} })).result.content[0].text);
   assert.equal(info.transport, 'fs', 'getConnectionInfo reports the fs transport');
   assert.equal(info.id, 'test', 'getConnectionInfo reports the fs id');
 

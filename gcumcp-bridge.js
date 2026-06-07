@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// @gcu/webmcp bridge — MCP stdio server + WebSocket/HTTP relay for GCU browser
+// @gcu/gcumcp bridge — MCP stdio server + WebSocket/HTTP relay for GCU browser
 // surfaces (weir, auditable notebooks, anything that loads the shim). Zero deps.
 // Speaks MCP JSON-RPC on stdin/stdout; WebSocket + HTTP long-poll on localhost.
 //
@@ -7,7 +7,7 @@
 // machine-global TOKEN. A page configured with the same port/token connects, and
 // only that app's surfaces ever reach this bridge — no cross-app crosstalk.
 //
-//   webmcp-bridge.js --app weir --port 7801
+//   gcumcp-bridge.js --app weir --port 7801
 //
 // The token is read from / created in ~/.gcu/webmcp.json so it survives restarts
 // and every bridge on the machine shares it. The port is NOT a secret; the token
@@ -47,8 +47,8 @@ function expandHome(p) {
   return p;
 }
 
-const APP_NAME = argVal('--app', '') || process.env.GCU_WEBMCP_APP || '';
-const PREFERRED_PORT = parseInt(argVal('--port', process.env.GCU_WEBMCP_PORT || '0'), 10) || 0;
+const APP_NAME = argVal('--app', '') || process.env.GCUMCP_APP || '';
+const PREFERRED_PORT = parseInt(argVal('--port', process.env.GCUMCP_PORT || '0'), 10) || 0;
 
 // Transport: 'socket' (ws/http on a localhost port, the default) or 'fs' (a shared
 // folder, TRANSPORTS.md). FS_ID keys the shared secret per app (the page derives the
@@ -58,12 +58,12 @@ const FS_ID = argVal('--fs-id', '') || APP_NAME;
 // Exchange folder. Convention (the standard, like the per-app port): ~/webmcp/<app>,
 // the default when --folder is omitted in fs mode. ~ is expanded; the dir is created
 // on start if missing.
-const FOLDER = expandHome(argVal('--folder', '') || process.env.GCU_WEBMCP_FOLDER
+const FOLDER = expandHome(argVal('--folder', '') || process.env.GCUMCP_FOLDER
   || (TRANSPORT === 'fs' && (APP_NAME || argVal('--fs-id', '')) ? '~/webmcp/' + (FS_ID || 'surface') : ''));
 // Multi-surface watch mode: serve EVERY surface folder under this parent (one bridge,
 // many apps — the right model for Claude Desktop). The folder basename is the app id
 // (→ its per-app key). Defaults to ~/webmcp when fs mode is requested with no --app/--folder.
-const WATCH = expandHome(argVal('--watch', '') || process.env.GCU_WEBMCP_WATCH
+const WATCH = expandHome(argVal('--watch', '') || process.env.GCUMCP_WATCH
   || (TRANSPORT === 'fs' && !FOLDER ? '~/webmcp' : ''));
 const FS_POLL_MS = parseInt(argVal('--poll', ''), 10) || 200;
 const ALLOW = (argVal('--allow', '') || '*').split(',').map((s) => s.trim()).filter(Boolean);
@@ -91,11 +91,11 @@ function loadOrCreateToken() {
   return token;
 }
 
-// The machine token. A `--token` / GCU_WEBMCP_TOKEN override lets a packaged installer
+// The machine token. A `--token` / GCUMCP_TOKEN override lets a packaged installer
 // (e.g. a Claude Desktop .mcpb) inject a user-set token — kept in the OS keychain by the
 // host and surfaced to the user to paste into the surface — instead of the auto-created
 // ~/.gcu/webmcp.json one (which a no-shell Desktop user can't read back).
-const sessionToken = argVal('--token', '') || process.env.GCU_WEBMCP_TOKEN || loadOrCreateToken();
+const sessionToken = argVal('--token', '') || process.env.GCUMCP_TOKEN || loadOrCreateToken();
 
 // fs transport: per-app HMAC key = HKDF-SHA256 of the machine token with an EMPTY salt
 // and info='webmcp-fs|<appId>' (32 bytes). The info (not the salt) carries the app id,
@@ -111,7 +111,7 @@ function deriveFsKey(appId) {
 // globs; built-ins always allowed. Applies to every transport. `*`→`.*`, anchored;
 // all other regex metachars (incl. `?`) are escaped so a glob can't over-match.
 const allowRes = ALLOW.map((g) => new RegExp('^' + g.replace(/[.+^${}()|[\]\\?]/g, '\\$&').replace(/\*/g, '.*') + '$'));
-const BUILTIN_TOOLS = new Set(['listClients', 'getConnectionInfo', 'listTools', 'callTool']);
+const BUILTIN_TOOLS = new Set(['gcumcp_listClients', 'gcumcp_getConnectionInfo', 'gcumcp_listTools', 'gcumcp_callTool']);
 function toolAllowed(name) {
   if (BUILTIN_TOOLS.has(name)) return true;
   return allowRes.some((re) => re.test(name));
@@ -190,7 +190,7 @@ function sendToClient(client, msg) {
 function handleClientMessage(clientId, msg) {
   const client = clients.get(clientId);
   if (!client) return;
-  if (process.env.GCU_WEBMCP_DEBUG) stderr(`recv ${clientId} ${msg && msg.type}`);
+  if (process.env.GCUMCP_DEBUG) stderr(`recv ${clientId} ${msg && msg.type}`);
 
   if (msg.type === 'tools_changed') {
     clearTimeout(client.staleTimer);
@@ -509,28 +509,28 @@ function remergeTools() {
 function getMcpTools() {
   const tools = [
     {
-      name: 'listClients',
-      description: 'Use as your first call to discover connected surfaces (browser pages exposing tools via @gcu/webmcp). Returns client IDs, titles, and transport. Most bridges front a single app, so there is usually one client. Client IDs are required by the `client` param of other tools only when more than one is connected.',
+      name: 'gcumcp_listClients',
+      description: 'gcumcp (GCU Model Context Protocol): discover the connected GCU browser surfaces — e.g. weir, auditable. Use as your first call. Returns client IDs, titles, and transport. Most bridges front a single app, so there is usually one client. Client IDs are required by the `client` param of other gcumcp tools only when more than one surface is connected.',
       inputSchema: { type: 'object', properties: {} },
-      annotations: { readOnlyHint: true, idempotentHint: true, title: 'List connected surfaces' },
+      annotations: { readOnlyHint: true, idempotentHint: true, title: 'List connected GCU surfaces' },
     },
     {
-      name: 'getConnectionInfo',
-      description: 'Returns the port:token connection string for this bridge. Give it to the user so a page can connect (paste into its MCP panel, or append #mcp=port:token to its URL). The token is machine-global; the port is this bridge\'s.',
+      name: 'gcumcp_getConnectionInfo',
+      description: 'gcumcp: returns how to connect a GCU surface to this bridge (a port:token string, or the fs folder + watch info). Give it to the user so a page (weir, …) can connect.',
       inputSchema: { type: 'object', properties: {} },
-      annotations: { readOnlyHint: true, idempotentHint: true, title: 'Get bridge connection string' },
+      annotations: { readOnlyHint: true, idempotentHint: true, title: 'Get gcumcp connection info' },
     },
     {
-      name: 'listTools',
-      description: 'List the tools a connected surface advertises (names, descriptions, input schemas) — the dynamic, surface-contributed tools (e.g. weir_queryItems). Pair with callTool. Use these two when a surface\'s native tools are NOT visible on this host — which happens when the host indexes a server\'s tools at connect-time and does not re-pull after a surface registers tools later (it ignores notifications/tools/list_changed). listTools + callTool are STATIC bridge built-ins, so they\'re always discoverable. Pass `client` only when more than one surface is connected.',
-      inputSchema: { type: 'object', properties: { client: { type: 'string', description: 'Client ID (use listClients) — only needed with >1 surface' } } },
-      annotations: { readOnlyHint: true, idempotentHint: true, title: 'List a surface\'s tools' },
+      name: 'gcumcp_listTools',
+      description: 'gcumcp: list the tools a connected GCU surface (weir, auditable, …) advertises — names, descriptions, input schemas (e.g. weir_queryItems). Pair with gcumcp_callTool to drive the surface. Use these two whenever the surface\'s native tools are NOT directly visible on this host — which happens when the host indexes a server\'s tools at connect-time and ignores notifications/tools/list_changed (so a surface that connects later never registers). gcumcp_listTools + gcumcp_callTool are STATIC, so they\'re always discoverable here. Pass `client` only when more than one surface is connected.',
+      inputSchema: { type: 'object', properties: { client: { type: 'string', description: 'Client ID (use gcumcp_listClients) — only needed with >1 surface' } } },
+      annotations: { readOnlyHint: true, idempotentHint: true, title: 'List a GCU surface\'s tools' },
     },
     {
-      name: 'callTool',
-      description: 'Invoke a surface tool by name — a static dispatcher to the dynamic surface tools (discover them with listTools). Use when the native surface tools aren\'t visible on this host. `name` = the surface tool (e.g. "weir_queryItems"); `arguments` = its input object (matching that tool\'s schema from listTools). `client` only with >1 surface. Honors the bridge --allow gate. Static bridge built-in.',
-      inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'The surface tool to invoke (from listTools)' }, arguments: { type: 'object', description: 'The tool\'s input arguments (its schema from listTools)' }, client: { type: 'string', description: 'Client ID (use listClients) — only needed with >1 surface' } }, required: ['name'] },
-      annotations: { title: 'Call a surface tool' },
+      name: 'gcumcp_callTool',
+      description: 'gcumcp: drive a connected GCU surface (weir, …) by invoking one of its tools by name — the static dispatcher to the dynamic surface tools (discover them with gcumcp_listTools). `name` = the surface tool (e.g. "weir_queryItems"); `arguments` = its input object (its schema from gcumcp_listTools). `client` only with >1 surface. Honors the bridge --allow gate.',
+      inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'The surface tool to invoke (from gcumcp_listTools)' }, arguments: { type: 'object', description: 'The tool\'s input arguments (its schema from gcumcp_listTools)' }, client: { type: 'string', description: 'Client ID (use gcumcp_listClients) — only needed with >1 surface' } }, required: ['name'] },
+      annotations: { title: 'Call a GCU surface tool' },
     },
   ];
   const multi = clients.size > 1;
@@ -558,7 +558,7 @@ function getMcpTools() {
 
 function routeToolCall(name, input) {
   return new Promise((resolve, reject) => {
-    if (name === 'listClients') {
+    if (name === 'gcumcp_listClients') {
       const result = [];
       for (const [id, client] of clients) {
         if (client.state !== 'ready') continue;
@@ -567,7 +567,7 @@ function routeToolCall(name, input) {
       return resolve(result);
     }
 
-    if (name === 'getConnectionInfo') {
+    if (name === 'gcumcp_getConnectionInfo') {
       if (TRANSPORT === 'fs' && WATCH) {
         return resolve({ transport: 'fs', mode: 'watch', watch: WATCH, surfaces: [...fsSurfaces.keys()], instructions: `Serving every surface folder under ${WATCH}. In a surface (e.g. weir) pick its folder ${WATCH}/<app> and connect with the machine token; new folders are picked up automatically.` });
       }
@@ -578,28 +578,28 @@ function routeToolCall(name, input) {
       return resolve({ connectionString: `${port}:${sessionToken}`, port, app: APP_NAME || undefined, instructions: 'Paste into the surface\'s MCP panel, or append #mcp=<connectionString> to its URL.' });
     }
 
-    // listTools — the static counterpart to the dynamic surface tools (for hosts that
-    // don't re-pull on tools/list_changed). Returns the resolved surface's allowed tools.
-    if (name === 'listTools') {
+    // gcumcp_listTools — the static counterpart to the dynamic surface tools (for hosts
+    // that don't re-pull on tools/list_changed). Returns the resolved surface's allowed tools.
+    if (name === 'gcumcp_listTools') {
       let clientId = input.client;
       if (!clientId) {
         const ready = [...clients.values()].filter((c) => c.state === 'ready');
         if (ready.length === 1) clientId = ready[0].id;
-        else if (ready.length === 0) return reject('No surface is connected yet. Use listClients.');
+        else if (ready.length === 0) return reject('No surface is connected yet. Use gcumcp_listClients.');
         else return reject(`Multiple surfaces connected: ${ready.map((c) => c.id).join(', ')}. Pass the 'client' parameter.`);
       }
       const client = clients.get(clientId);
-      if (!client || client.state !== 'ready') return reject(`Client '${clientId}' is not ready. Use listClients.`);
+      if (!client || client.state !== 'ready') return reject(`Client '${clientId}' is not ready. Use gcumcp_listClients.`);
       const list = client.tools.filter((t) => toolAllowed(t.name)).map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
       return resolve({ client: clientId, count: list.length, tools: list });
     }
 
-    // callTool — a static dispatcher to a surface tool by name. Remap to the target,
+    // gcumcp_callTool — a static dispatcher to a surface tool by name. Remap to the target,
     // then fall through to normal routing (which re-checks --allow on the TARGET, so
     // callTool can't bypass the capability gate).
-    if (name === 'callTool') {
+    if (name === 'gcumcp_callTool') {
       const target = String(input.name || '');
-      if (!target) return reject('callTool requires `name` (the surface tool to invoke). List options with listTools.');
+      if (!target) return reject('gcumcp_callTool requires `name` (the surface tool to invoke). List options with gcumcp_listTools.');
       name = target;
       input = { ...(input.arguments || {}), ...(input.client ? { client: input.client } : {}) };
     }
@@ -700,7 +700,7 @@ function startFsSurface(appId, folder) {
     onMessage: (msg) => onFsMessage(surface, msg),
     onState: (s) => stderr(`fs[${appId}] ${s}`),
     onWarn: (m) => stderr(`fs[${appId}]: ${m}`),   // always-on: forged/stale frames, bad announce
-    log: (m) => { if (process.env.GCU_WEBMCP_DEBUG) stderr(`fs[${appId}]: ${m}`); },
+    log: (m) => { if (process.env.GCUMCP_DEBUG) stderr(`fs[${appId}]: ${m}`); },
   });
   fsSurfaces.set(appId, surface);
   try { fs.mkdirSync(folder, { recursive: true }); } catch (e) { stderr(`could not create ${folder}: ${e.message}`); }
@@ -753,8 +753,8 @@ function handleMcpMessage(msg) {
       result: {
         protocolVersion: '2025-03-26',
         capabilities: { tools: { listChanged: true } },
-        serverInfo: { name: `gcu-webmcp${APP_NAME ? '-' + APP_NAME : ''}`, version: '0.1.0' },
-        instructions: `@gcu/webmcp bridge${appLabel}. It relays your tool calls to a running browser surface over localhost. Call listClients to see what is connected, then call the tools that surface advertises (their names and schemas are app-defined). Use getConnectionInfo to get the port:token string if the user still needs to connect a page.`,
+        serverInfo: { name: `gcumcp${APP_NAME ? '-' + APP_NAME : ''}`, version: '0.1.1' },
+        instructions: `gcumcp (GCU Model Context Protocol) bridge${appLabel} — it relays your tool calls to running GCU browser surfaces (weir, auditable, …). Start with gcumcp_listClients to see what's connected. To drive a surface, call gcumcp_listTools to discover its tools (e.g. weir_queryItems), then gcumcp_callTool to invoke them — use this path whenever a surface's native tools aren't directly visible here. Use gcumcp_getConnectionInfo if the user still needs to connect a page.`,
       },
     });
 
@@ -797,15 +797,15 @@ process.stdin.on('data', (chunk) => {
 
 function printInfo() {
   const { file } = configPath();
-  process.stdout.write(`@gcu/webmcp\n`);
+  process.stdout.write(`@gcu/gcumcp\n`);
   process.stdout.write(`  app:   ${APP_NAME || '(none — pass --app NAME)'}\n`);
-  const tokenFrom = (argVal('--token', '') || process.env.GCU_WEBMCP_TOKEN) ? '--token / env (not persisted)' : file;
+  const tokenFrom = (argVal('--token', '') || process.env.GCUMCP_TOKEN) ? '--token / env (not persisted)' : file;
   process.stdout.write(`  token: ${sessionToken}  (from ${tokenFrom})\n`);
   if (TRANSPORT === 'fs' && WATCH) {
     process.stdout.write(`  transport: fs (watch — multi-surface)\n`);
     process.stdout.write(`  watch:  ${WATCH}  (serves every ~/webmcp/<app> folder; one bridge, many surfaces)\n`);
     process.stdout.write(`\n.mcp.json snippet:\n`);
-    process.stdout.write(JSON.stringify({ mcpServers: { webmcp: { command: 'node', args: ['webmcp-bridge.js', '--transport', 'fs', '--watch', '~/webmcp'] } } }, null, 2) + '\n');
+    process.stdout.write(JSON.stringify({ mcpServers: { gcumcp: { command: 'node', args: ['gcumcp-bridge.js', '--transport', 'fs', '--watch', '~/webmcp'] } } }, null, 2) + '\n');
     return;
   }
   if (TRANSPORT === 'fs') {
@@ -815,9 +815,9 @@ function printInfo() {
     process.stdout.write(`\n.mcp.json snippet:\n`);
     process.stdout.write(JSON.stringify({
       mcpServers: {
-        [`webmcp${APP_NAME ? '-' + APP_NAME : ''}`]: {
+        [`gcumcp${APP_NAME ? '-' + APP_NAME : ''}`]: {
           command: 'node',
-          args: ['webmcp-bridge.js', '--app', APP_NAME || 'APP', '--transport', 'fs', '--folder', FOLDER || '/path/to/exchange'],
+          args: ['gcumcp-bridge.js', '--app', APP_NAME || 'APP', '--transport', 'fs', '--folder', FOLDER || '/path/to/exchange'],
         },
       },
     }, null, 2) + '\n');
@@ -828,31 +828,31 @@ function printInfo() {
   process.stdout.write(`\n.mcp.json snippet:\n`);
   process.stdout.write(JSON.stringify({
     mcpServers: {
-      [`webmcp${APP_NAME ? '-' + APP_NAME : ''}`]: {
+      [`gcumcp${APP_NAME ? '-' + APP_NAME : ''}`]: {
         command: 'node',
-        args: ['webmcp-bridge.js', '--app', APP_NAME || 'APP', '--port', String(PREFERRED_PORT || 78_01)],
+        args: ['gcumcp-bridge.js', '--app', APP_NAME || 'APP', '--port', String(PREFERRED_PORT || 78_01)],
       },
     },
   }, null, 2) + '\n');
 }
 
 // --setup: friendly, copy-paste onboarding for Claude Code AND Claude Desktop, using
-// the no-clone `npx github:` distributable (→ swap to `@gcu/webmcp` once on npm / a
+// the no-clone `npx github:` distributable (→ swap to `@gcu/gcumcp` once on npm / a
 // `jsr:` spec for deno). --info stays terse (app/token/port-or-folder).
 function printSetup() {
   const { file } = configPath();
   const app = APP_NAME || 'APP';
   const fsMode = TRANSPORT === 'fs';
-  const PKG = 'github:gentropic/webmcp';   // today's no-publish distributable
+  const PKG = 'github:gentropic/gcumcp';   // today's no-publish distributable
   const args = fsMode ? ['--app', app, '--transport', 'fs'] : ['--app', app, '--port', String(PREFERRED_PORT || 7801)];
   const w = (s) => process.stdout.write(s);
-  w(`@gcu/webmcp — connect "${app}" to Claude Code / Claude Desktop\n\n`);
+  w(`@gcu/gcumcp — connect "${app}" to Claude Code / Claude Desktop\n\n`);
   w(`  transport: ${fsMode ? 'fs — a shared folder, no port, no browser extension' : 'socket — ws/http on localhost'}\n`);
   w(fsMode ? `  folder:    ${FOLDER}  (auto-created on start)\n` : `  port:      ${PREFERRED_PORT || 7801}\n`);
   w(`  token:     ${sessionToken}\n             (machine-global, from ${file} — the page needs this)\n\n`);
   w(`── Claude Code ──\n`);
   w(`  claude mcp add ${app} --scope user -- npx -y ${PKG} ${args.join(' ')}\n`);
-  w(`  (Deno: claude mcp add ${app} --scope user -- deno run -A jsr:@gcu/webmcp ${args.join(' ')})\n\n`);
+  w(`  (Deno: claude mcp add ${app} --scope user -- deno run -A jsr:@gcu/gcumcp ${args.join(' ')})\n\n`);
   w(`── Claude Desktop ── add to claude_desktop_config.json\n`);
   w(`  (Windows: %APPDATA%\\Claude\\  ·  macOS: ~/Library/Application Support/Claude/)\n`);
   w(JSON.stringify({ mcpServers: { [app]: { command: 'npx', args: ['-y', PKG, ...args] } } }, null, 2) + '\n\n');
@@ -865,7 +865,7 @@ function printSetup() {
     w(`  paste  ${PREFERRED_PORT || 7801}:${sessionToken}  into ${app}'s WebMCP connection field\n`);
     w(`  (a public-origin PWA also needs the @gcu/bridge extension; --transport fs avoids that).\n`);
   }
-  w(`\nDistribution: npx github (node, no key) · jsr:@gcu/webmcp (deno, versioned) · or a clone.\n`);
+  w(`\nDistribution: npx github (node, no key) · jsr:@gcu/gcumcp (deno, versioned) · or a clone.\n`);
 }
 
 if (process.argv.includes('--setup')) { printSetup(); process.exit(0); }
@@ -873,7 +873,7 @@ if (process.argv.includes('--info')) { printInfo(); process.exit(0); }
 
 // ── Startup ──
 
-function stderr(msg) { process.stderr.write(`[webmcp${APP_NAME ? ':' + APP_NAME : ''}] ${msg}\n`); }
+function stderr(msg) { process.stderr.write(`[gcumcp${APP_NAME ? ':' + APP_NAME : ''}] ${msg}\n`); }
 
 let server = null;
 

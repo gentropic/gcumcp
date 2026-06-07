@@ -1,4 +1,4 @@
-# @gcu/webmcp — Transports
+# @gcu/gcumcp — Transports
 
 Status: **draft, v0.1.** Extends [SPEC.md §4](SPEC.md). Records the design for a
 *pluggable transport layer* and a new **filesystem transport** (`fs`) that carries
@@ -312,13 +312,13 @@ one session to drive both.
 
 ## 6. The bridge in `fs` mode
 
-The agent side is the **existing `webmcp-bridge.js`**, gaining an `fs` backend —
+The agent side is the **existing `gcumcp-bridge.js`**, gaining an `fs` backend —
 not a new binary, and not per-app. Its MCP-facing side is unchanged stdio
 JSON-RPC; only its surface-facing side swaps the socket for the folder:
 
 ```json
 { "mcpServers": { "webmcp-weir": { "command": "node",
-  "args": ["webmcp-bridge.js", "--app", "weir",
+  "args": ["gcumcp-bridge.js", "--app", "weir",
            "--transport", "fs", "--folder", "~/webmcp/weir"] } } }
 ```
 
@@ -334,7 +334,7 @@ surface-agnostic — it relays frames and merges the tool list the page sends. S
 
 - **One bridge install, parameterized per surface by `--folder`.** This resolves
   SPEC §10's "user-scope install" question: the *binary* installs once (global /
-  `npx @gcu/webmcp`); *identity* stays explicit in the `--folder` arg, so
+  `npx @gcu/gcumcp`); *identity* stays explicit in the `--folder` arg, so
   registration can be per-repo `.mcp.json` (keeps app identity with the app, as
   today) **or** user-scope — both work because identity no longer hinges on where
   the process was launched. Recommended: global binary, per-app `.mcp.json` entry.
@@ -533,7 +533,7 @@ is additive.
   shared consent helper (SPEC §10).
 - **Distribution / reach:**
   - **Claude Desktop bundle — ✅ built.** `manifest.json` (MCPB v0.3) + `npm run mcpb`
-    (`tools/build-mcpb.mjs`) → `dist/gcu-webmcp.mcpb` (~20 kB, validated). A node server
+    (`tools/build-mcpb.mjs`) → `dist/gcumcp.mcpb` (~20 kB, validated). A node server
     running the bridge in **multi-surface watch mode** (`--watch ${user_config.folder}`,
     default `~/webmcp`); `user_config` collects the folder + a sensitive token (→ OS
     keychain → `GCU_WEBMCP_TOKEN`). Claude Desktop's **bundled Node** runs it — no node

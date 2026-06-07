@@ -1,10 +1,10 @@
 {
-  "name": "@gcu/webmcp",
-  "version": "0.1.0",
-  "exports": "./webmcp-bridge.js",
+  "name": "@gcu/gcumcp",
+  "version": "0.1.1",
+  "exports": "./gcumcp-bridge.js",
   "publish": {
     "include": [
-      "webmcp-bridge.js",
+      "gcumcp-bridge.js",
       "fs-channel.js",
       "shim.js",
       "SPEC.md",

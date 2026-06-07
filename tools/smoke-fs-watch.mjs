@@ -14,7 +14,7 @@ import { createHmac, hkdfSync, randomBytes } from 'node:crypto';
 import { FsChannel } from '../fs-channel.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const bridgePath = path.join(here, '..', 'webmcp-bridge.js');
+const bridgePath = path.join(here, '..', 'gcumcp-bridge.js');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gcu-watch-home-'));
@@ -74,7 +74,7 @@ try {
   // wait for BOTH surfaces to become ready clients
   let clients = [];
   for (let i = 0; i < 80; i++) {
-    clients = JSON.parse((await mcp('tools/call', { name: 'listClients', arguments: {} })).result.content[0].text);
+    clients = JSON.parse((await mcp('tools/call', { name: 'gcumcp_listClients', arguments: {} })).result.content[0].text);
     if (clients.length >= 2) break;
     await sleep(120);
   }

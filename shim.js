@@ -1,7 +1,7 @@
-// @gcu/webmcp shim — WebMCP polyfill + WebSocket/HTTP bridge client.
+// @gcu/gcumcp shim — WebMCP polyfill + WebSocket/HTTP bridge client.
 // Generic: knows nothing about any specific app. Drop it into any page; it
 // installs navigator.modelContext (registerTool/unregisterTool) and a small
-// window.gcuWebMCP control surface, then relays tool calls to a @gcu/webmcp
+// window.gcuWebMCP control surface, then relays tool calls to a @gcu/gcumcp
 // bridge over localhost. Tries WebSocket first; falls back to HTTP long-polling
 // (which works from file:// origins where WS is blocked).
 //
@@ -238,7 +238,7 @@
       randomId: function () { return _randHex(8); },
       onMessage: function (msg) { _handleMessage(msg); },
       onState: function (s) { if (s === 'closed') _setState('disconnected'); },   // 'connected' is set on `welcome`
-      onWarn: function (m) { if (typeof console !== 'undefined') console.warn('[gcu-webmcp] fs:', m); },   // always-on (forged/stale frames)
+      onWarn: function (m) { if (typeof console !== 'undefined') console.warn('[gcumcp] fs:', m); },   // always-on (forged/stale frames)
     });
     var t = { type: 'fs', channel: channel, token: token, polling: true, timer: null };
     _transport = t;
@@ -250,7 +250,7 @@
       if (busy || !t.polling) return;
       busy = true;
       Promise.resolve().then(function () { return channel.tick(); })
-        .catch(function (e) { if (typeof console !== 'undefined') console.error('[gcu-webmcp] fs tick', e); })
+        .catch(function (e) { if (typeof console !== 'undefined') console.error('[gcumcp] fs tick', e); })
         .then(function () { busy = false; });
     }, FS_POLL_MS);
   }
@@ -261,7 +261,7 @@
     if (msg.type === 'welcome') { _clientId = msg.id; _setState('connected'); }
     else if (msg.type === 'tool_invoke') { _handleInvoke(msg); }
     else if (msg.type === 'ping') { _send({ type: 'pong' }); }
-    else if (msg.type === 'error') { console.error('[gcu-webmcp]', msg.message); _setState('error'); }
+    else if (msg.type === 'error') { console.error('[gcumcp]', msg.message); _setState('error'); }
   }
 
   // ── connect (fs when a folder is injected; else try WS, fall back to HTTP) ──
@@ -276,7 +276,7 @@
       _teardownTransport();
       clearTimeout(_reconnectTimer);
       _connectFs(fsToken).catch(function (e) {
-        console.error('[gcu-webmcp] fs connection failed:', e.message || e);
+        console.error('[gcumcp] fs connection failed:', e.message || e);
         _setState('error');
         if (_portAndToken) _reconnectTimer = setTimeout(function () { _connect(_portAndToken); }, 5000);
       });
@@ -299,7 +299,7 @@
     var useHttp = forceHttp || !!_fetch || (typeof location !== 'undefined' && location.protocol === 'file:');
     (useHttp ? _connectHttp(port, token) : _connectWs(port, token).catch(function () { return _connectHttp(port, token); }))
       .catch(function (e) {
-        console.error('[gcu-webmcp] connection failed:', e.message || e);
+        console.error('[gcumcp] connection failed:', e.message || e);
         _setState('error');
         if (_portAndToken) _reconnectTimer = setTimeout(function () { _connect(_portAndToken); }, 5000);
       });

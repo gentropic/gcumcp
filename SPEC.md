@@ -1,4 +1,4 @@
-# @gcu/webmcp — design spec
+# @gcu/gcumcp — design spec
 
 Status: **draft, v0.1.** The transport (shim + bridge) is extracted, working, and
 in use by Auditable; this spec records the *topology* decisions made while
@@ -10,7 +10,7 @@ silently diverge.
 
 ## 1. What this is (and isn't)
 
-`@gcu/webmcp` is the **single, official way to connect GCU browser surfaces to
+`@gcu/gcumcp` is the **single, official way to connect GCU browser surfaces to
 Claude Code** (or any MCP stdio client). A "surface" is a browser page — weir, an
 Auditable notebook, a future tool — that loads `shim.js` and registers tools via
 `navigator.modelContext`. The bridge relays an MCP client's tool calls to that
@@ -86,7 +86,7 @@ rather than getting it by accident.
 
 | Component | Lives | Role | Generic? |
 |---|---|---|---|
-| `webmcp-bridge.js` | this repo (node, dev-time) | MCP stdio ↔ WS/HTTP relay, tool merge, routing | Yes |
+| `gcumcp-bridge.js` | this repo (node, dev-time) | MCP stdio ↔ WS/HTTP relay, tool merge, routing | Yes |
 | `shim.js` | this repo; **vendored into each app's build** | `navigator.modelContext` polyfill + transport client | Yes |
 | *adapter* | **each app's own repo** | registers that app's domain tools on `navigator.modelContext` | No — per app |
 
@@ -101,7 +101,7 @@ browser JS** with no imports/exports, so it inlines into any single-file build
 (weir vendors it as source, like `vfs.js`).
 
 > **Name clash warning.** Weir already has a different `@gcu/bridge` — the CORS
-> *fetch* broker (a Chromium extension). That is **not** this. This (`@gcu/webmcp`)
+> *fetch* broker (a Chromium extension). That is **not** this. This (`@gcu/gcumcp`)
 > brokers agent↔page *tools*; that brokers page↔web *fetches*. Keep them distinct
 > in code and docs.
 
@@ -259,11 +259,11 @@ the same value in the page's config.
 3. **Add `.mcp.json`** to the app's repo:
    ```json
    { "mcpServers": { "webmcp-weir": { "command": "node",
-     "args": ["webmcp-bridge.js", "--app", "weir", "--port", "7801"] } } }
+     "args": ["gcumcp-bridge.js", "--app", "weir", "--port", "7801"] } } }
    ```
    (Point `command`/`args` at wherever the bridge lives — a sibling clone, an
-   `npx @gcu/webmcp`, or a vendored copy.)
-4. **Connect once.** `node webmcp-bridge.js --app weir --port 7801 --info` prints
+   `npx @gcu/gcumcp`, or a vendored copy.)
+4. **Connect once.** `node gcumcp-bridge.js --app weir --port 7801 --info` prints
    the `port:token`. Paste it into the page (or `#mcp=`); the page stores it and
    reconnects silently thereafter.
 
@@ -276,7 +276,7 @@ tools in `mcp-adapter.js`. To migrate:
 
 - Replace its bundled shim with this package's `shim.js` (back-compat alias
   `window.__auditable_mcp` is preserved, so the adapter keeps working).
-- Point its `.mcp.json` at this `webmcp-bridge.js` with `--app auditable --port
+- Point its `.mcp.json` at this `gcumcp-bridge.js` with `--app auditable --port
   7802`.
 - Terminology changed `notebook`→`client` and `listNotebooks`→`listClients`; the
   Auditable adapter's instructions/text should follow, but the wire protocol is
@@ -298,11 +298,11 @@ tools in `mcp-adapter.js`. To migrate:
   adapters (a shared helper in this package) or left per-app? Leaning shared
   helper, eventually.
 - **User-scope install.** *Resolved by the `fs` transport + distribution.* The bridge
-  is launched per-surface via `npx -y github:gentropic/webmcp --app <x> --transport fs`
+  is launched per-surface via `npx -y github:gentropic/gcumcp --app <x> --transport fs`
   (`claude mcp add … --scope user` for Claude Code; the same in Claude Desktop's
   config) — no clone, no per-app port, no npm key. `--setup` emits both clients' config.
   See the README + TRANSPORTS §6. Also **published on JSR**: `deno run -A
-  jsr:@gcu/webmcp …` (versioned, key-free). (Future: `npx @gcu/webmcp` once on npm.)
+  jsr:@gcu/gcumcp …` (versioned, key-free). (Future: `npx @gcu/gcumcp` once on npm.)
 - **Zero-paste first connect** *(still open, fs flavour).* For `fs`, a local (un-synced)
   folder's access already *is* the credential, so the bridge could drop a bootstrap hint
   the page reads — but that leaks the cluster secret on a *synced* folder, so it'd be

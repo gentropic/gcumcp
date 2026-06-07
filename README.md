@@ -1,4 +1,4 @@
-# @gcu/webmcp
+# @gcu/gcumcp
 
 The official, zero-dependency way to connect **GCU browser surfaces** (weir,
 Auditable notebooks, anything that loads the shim) to **Claude Code**, **Claude
@@ -8,7 +8,7 @@ Desktop**, or any MCP stdio client.
 ┌──────────────────┐
 │  weir  (browser) │──WS/HTTP──┐
 └──────────────────┘           │   ┌──────────────────┐  stdio   ┌─────────────┐
-                               ├──►│  webmcp-bridge   │◄────────►│ Claude Code │
+                               ├──►│  gcumcp-bridge   │◄────────►│ Claude Code │
 ┌──────────────────┐           │   │  (node, :7801)   │   MCP    │             │
 │  another surface │──WS/HTTP──┘   └──────────────────┘          └─────────────┘
 └──────────────────┘
@@ -32,7 +32,7 @@ its security model in [TRANSPORTS.md](TRANSPORTS.md). This is the quick start.
 
 | File | Role |
 |---|---|
-| `webmcp-bridge.js` | Node bridge: MCP stdio ⇄ WebSocket/HTTP/**fs** relay, tool merge, routing. Zero deps. Runs unmodified on node, `bun`, or `deno run`. |
+| `gcumcp-bridge.js` | Node bridge: MCP stdio ⇄ WebSocket/HTTP/**fs** relay, tool merge, routing. Zero deps. Runs unmodified on node, `bun`, or `deno run`. |
 | `shim.js` | Generic WebMCP polyfill — `navigator.modelContext` + transport client. Vendor into each app's build. |
 | `fs-channel.js` | The `fs`-transport protocol core (signed-sentinel framing). Vendor **alongside** `shim.js` for fs support. |
 | `SPEC.md` · `TRANSPORTS.md` | Design + topology + assigned ports; the pluggable transports + fs protocol + security model. |
@@ -52,10 +52,10 @@ it. Use the **`fs` transport** — no port, no extension — run straight from G
 
 **Claude Code:**
 ```
-claude mcp add weir --scope user -- npx -y github:gentropic/webmcp --app weir --transport fs
+claude mcp add weir --scope user -- npx -y github:gentropic/gcumcp --app weir --transport fs
 ```
 **Claude Desktop — one-click bundle (recommended):** `npm run mcpb` →
-`dist/gcu-webmcp.mcpb`; double-click it (or Settings → Extensions → Install). It
+`dist/gcumcp.mcpb`; double-click it (or Settings → Extensions → Install). It
 installs **one multi-surface bridge** (`--watch ~/webmcp`) that serves **every** GCU
 surface — no per-app config, and **Claude Desktop's bundled Node runs it (nothing else
 to install)**. At install it asks for a folder (default `~/webmcp`) + a token you choose;
@@ -65,21 +65,21 @@ paste that same token into each surface's WebMCP settings when you connect its f
 (`%APPDATA%\Claude\` on Windows, `~/Library/Application Support/Claude/` on macOS):
 ```json
 { "mcpServers": { "weir": { "command": "npx",
-  "args": ["-y", "github:gentropic/webmcp", "--app", "weir", "--transport", "fs"] } } }
+  "args": ["-y", "github:gentropic/gcumcp", "--app", "weir", "--transport", "fs"] } } }
 ```
 Then get the token + the exact connect steps:
 ```
-npx -y github:gentropic/webmcp --app weir --transport fs --setup
+npx -y github:gentropic/gcumcp --app weir --transport fs --setup
 ```
 It prints both client snippets, the machine token, the auto-created folder
 (`~/webmcp/weir`), and the in-page step: open the surface's WebMCP settings → **pick
 that folder** → **paste the token** → **connect over folder**. The page remembers it.
 
 - **No npm key / publish needed** — `npx github:` runs the bin straight from the repo.
-- **Prefer Deno?** It's published on **[JSR](https://jsr.io/@gcu/webmcp)** — point
-  `command` at `deno` and `args` at `run -A jsr:@gcu/webmcp …` (versioned, no git
+- **Prefer Deno?** It's published on **[JSR](https://jsr.io/@gcu/gcumcp)** — point
+  `command` at `deno` and `args` at `run -A jsr:@gcu/gcumcp …` (versioned, no git
   fetch). `bun` runs the bridge unmodified too.
-- Once on npm, the node line also becomes `npx -y @gcu/webmcp …`.
+- Once on npm, the node line also becomes `npx -y @gcu/gcumcp …`.
 
 ## Quick start (wiring an app, e.g. weir)
 
@@ -105,10 +105,10 @@ that folder** → **paste the token** → **connect over folder**. The page reme
 3. **Wire the bridge.** For end users: the [Connect](#connect-a-surface-to-claude-no-clone-needed)
    section above (`npx github:` + `--transport fs`). For local dev against a clone:
    ```json
-   { "mcpServers": { "webmcp-weir": { "command": "node",
-     "args": ["webmcp-bridge.js", "--app", "weir", "--transport", "fs"] } } }
+   { "mcpServers": { "gcumcp-weir": { "command": "node",
+     "args": ["gcumcp-bridge.js", "--app", "weir", "--transport", "fs"] } } }
    ```
-   Run `node webmcp-bridge.js --app weir --transport fs --setup` for the token + the
+   Run `node gcumcp-bridge.js --app weir --transport fs --setup` for the token + the
    exact in-page connect steps. (Drop `--transport fs` for the localhost socket + the
    `@gcu/bridge` extension instead.)
 

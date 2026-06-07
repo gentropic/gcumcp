@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.3",
   "name": "gcu-webmcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Let Claude Desktop drive your GCU browser surfaces (weir, …) over a shared folder — no port, no extension.",
   "long_description": "Installs the @gcu/webmcp bridge in multi-surface watch mode: one bridge that serves every surface folder under ~/webmcp (one subfolder per app). Connect a surface by picking its folder + pasting your token in its WebMCP settings; new surfaces light up automatically. Uses the fs transport (no localhost port, no browser extension). Claude Desktop's bundled Node runtime runs it — nothing else to install.",
   "author": { "name": "Arthur Endlein Correia" },

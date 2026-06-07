@@ -28,8 +28,8 @@
     "folder": {
       "type": "directory",
       "title": "Surfaces folder",
-      "description": "Parent folder watched for GCU surfaces — one subfolder per app (e.g. <folder>/weir). The default ~/webmcp is fine for most.",
-      "default": "${HOME}/webmcp",
+      "description": "Parent folder watched for GCU surfaces — one subfolder per app (e.g. <folder>/weir). Use a ~/... path (the bridge expands ~) or Browse to an absolute one. Default ~/webmcp is fine for most.",
+      "default": "~/webmcp",
       "required": true
     },
     "token": {
